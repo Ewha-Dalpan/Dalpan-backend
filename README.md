@@ -1,2 +1,2 @@
 # Dalpan-backend
-이화여자대학교 sw창업경진대회  Dalpan backend repository
+신촌대학연합SW창업경진대회 이화여대 2팀 '달판' 백엔드
