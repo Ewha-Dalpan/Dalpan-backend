@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import environ
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -40,6 +41,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'accounts',
     'cases',
@@ -57,6 +59,12 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=14),
+    "ROTATE_REFRESH_TOKENS": False,
 }
 
 MIDDLEWARE = [
@@ -126,8 +134,13 @@ AUTH_PASSWORD_VALIDATORS = [
 AUTH_USER_MODEL = 'accounts.User'
 IDENTITY_HASH_KEY = env("IDENTITY_HASH_KEY")  # SECRET_KEY와 분리된 별도 비밀키, 절대 변경 금지
 
-CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])
-KAKAO_REST_API_KEY = env('KAKAO_REST_API_KEY', default='')
+
+KAKAO_REST_API_KEY = env("KAKAO_REST_API_KEY")
+KAKAO_CLIENT_SECRET = env("KAKAO_CLIENT_SECRET", default="")
+KAKAO_ALLOWED_REDIRECT_URIS = env.list("KAKAO_ALLOWED_REDIRECT_URIS")
+TERMS_VERSION = "v1.0"  # 약관 문서에 적힌 버전과 맞출 것
+CORS_ALLOWED_ORIGINS = ["http://localhost:8000"]
+KAKAO_ADMIN_KEY = env("KAKAO_ADMIN_KEY", default="")
 
 LANGUAGE_CODE = 'ko-kr'
 
