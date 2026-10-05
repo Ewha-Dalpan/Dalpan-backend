@@ -46,7 +46,6 @@ INSTALLED_APPS = [
     'coins',
     'payments',
     'jury',
-    'notifications',
     'verdicts',
     
 ]
@@ -125,6 +124,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
 AUTH_USER_MODEL = 'accounts.User'
+IDENTITY_HASH_KEY = env("IDENTITY_HASH_KEY")  # SECRET_KEY와 분리된 별도 비밀키, 절대 변경 금지
 
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[])
 KAKAO_REST_API_KEY = env('KAKAO_REST_API_KEY', default='')
