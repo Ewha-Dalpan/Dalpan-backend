@@ -42,10 +42,12 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'accounts',
+    'cases',
     'coins',
     'payments',
     'jury',
     'notifications',
+    'verdicts',
     
 ]
 
