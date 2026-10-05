@@ -4,40 +4,41 @@ from uuid import uuid4 #파일 이름 생성시 uuid4를 사용하여 중복 방
 from django.conf import settings
 from django.db import models
 
+
 def case_image_path(instance, filename):
     extension = Path(filename).suffix.lower()
     return f"cases/{instance.case_id}/{uuid4().hex}{extension}"
 
+
 class Case(models.Model):
     class Status(models.TextChoices):
-        WRITING = 'writing', '작성중'
-        CONFIRMING = 'confirming', '사용자 최종 확인중' # 더 수정할 래요 누를 시 수정 가능한 상태
-        READY = 'ready', '판결준비완료/AI판결대기' # 좋아요 누를 시 ai 판결 진행 가능하도록 ready로 변경. 톨 부족하면 coins앱으로 연결되도록 진행
-        AIJUDGED = 'aijudged', 'AI판결완료' #판결문 생성된 상태
-        JUDGING = 'judging', '배심원판결중' # 배심원이 판결을 진행 중인 상태
-        JUDGED = 'judged', '배심원판결완료' #배심원 판결 완료.
-
-    class SpeakerSide(models.TextChoices):
-        LEFT = 'left', '왼쪽'
-        RIGHT = 'right', '오른쪽'
+        WRITING = 'WRITING', '작성중'
+        CONFIRMING = 'CONFIRMING', '상황 확인중'
+        READY = 'READY', '판결 준비완료'
+        JUDGING = 'JUDGING', '판결 진행중'
+        JUDGED = 'JUDGED', '판결 완료'
 
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
-        on_delete=models.PROTECT, 
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
         related_name='cases',
-        )
-
-    description = models.TextField(blank=True, default = "")
-    relationship = models.CharField(max_length=50,blank=True, default = "")
-    opponent_name = models.CharField(max_length=100,blank=True, default = "")
-    speaker_side = models.CharField(max_length=5, choices=SpeakerSide.choices, default=SpeakerSide.RIGHT)
+    )
+    category_id = models.BigIntegerField(null=True, blank=True)
+    title = models.CharField(max_length=100, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.WRITING)
+    is_public = models.BooleanField(default=False)
+    public_at = models.DateTimeField(null=True, blank=True)
+    is_hidden = models.BooleanField(default=False)
+    jury_count = models.IntegerField(default=0)
+    fault_ratio_sum = models.IntegerField(default=0)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'cases'
+
 
 class CaseImage(models.Model):
     case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name='images')
@@ -47,10 +48,54 @@ class CaseImage(models.Model):
 
     class Meta:
         db_table = 'case_images'
-        ordering = ['sort_order','id']
+        ordering = ['sort_order', 'id']
         constraints = [
             models.UniqueConstraint(
                 fields=['case', 'sort_order'],
-                name='unique_case_image_sort_order')
+                name='unique_case_image_sort_order',
+            )
         ]
-# Create your models here.
+
+
+class CaseSituation(models.Model):
+    class AnalysisStatus(models.TextChoices):
+        PENDING = 'PENDING', '대기'
+        RUNNING = 'RUNNING', '분석중'
+        DONE = 'DONE', '완료'
+        FAILED = 'FAILED', '실패'
+
+    class UserSpeakerSide(models.TextChoices):
+        LEFT = 'LEFT', '왼쪽'
+        RIGHT = 'RIGHT', '오른쪽'
+
+    case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name='situations')
+    relation = models.CharField(max_length=50, null=True, blank=True)
+    speakers = models.TextField(null=True, blank=True)
+    user_speaker_side = models.CharField(
+        max_length=5,
+        choices=UserSpeakerSide.choices,
+        default=UserSpeakerSide.RIGHT,
+    )
+    summary = models.TextField(null=True, blank=True)
+    ai_raw = models.TextField(null=True, blank=True)
+    user_extra_context = models.TextField(null=True, blank=True)
+    analysis_status = models.CharField(
+        max_length=20,
+        choices=AnalysisStatus.choices,
+        default=AnalysisStatus.PENDING,
+    )
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'case_situations'
+
+
+class CaseIssue(models.Model):
+    case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name='issues')
+    content = models.CharField(max_length=255)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = 'case_issues'
