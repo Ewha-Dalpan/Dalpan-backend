@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 TOKEN_URL = "https://kauth.kakao.com/oauth/token"
 ME_URL = "https://kapi.kakao.com/v2/user/me"
 TIMEOUT = (3.05, 5)
+UNLINK_URL = "https://kapi.kakao.com/v1/user/unlink"
 
 
 class KakaoError(Exception):
@@ -55,3 +56,23 @@ def fetch_kakao_id(code: str, redirect_uri: str) -> str:
         raise KakaoError("카카오 서버와 통신할 수 없습니다.", client_error=False)
 
     return str(kakao_id)
+
+def unlink_kakao_user(kakao_id: str) -> bool:
+    """카카오 앱 연결 끊기. 어떤 경우에도 예외를 던지지 않는다 (탈퇴는 계속 진행)."""
+    if not settings.KAKAO_ADMIN_KEY:
+        logger.error("KAKAO_ADMIN_KEY가 없어 카카오 연결 끊기를 건너뜁니다.")
+        return False
+    try:
+        res = requests.post(
+            UNLINK_URL,
+            headers={"Authorization": f"KakaoAK {settings.KAKAO_ADMIN_KEY}"},
+            data={"target_id_type": "user_id", "target_id": kakao_id},
+            timeout=TIMEOUT,
+        )
+    except requests.RequestException:
+        logger.exception("카카오 연결 끊기 요청 실패")
+        return False
+    if res.status_code != 200:
+        logger.warning("카카오 연결 끊기 실패 status=%s", res.status_code)
+        return False
+    return True

@@ -40,3 +40,11 @@ class ActiveTokenRefreshSerializer(TokenRefreshSerializer):
         if not User.objects.filter(pk=user_id, is_active=True).exists():
             raise AuthenticationFailed("이용할 수 없는 계정입니다.")
         return super().validate(attrs)
+    
+class WithdrawSerializer(serializers.Serializer):
+    confirm = serializers.BooleanField()
+
+    def validate_confirm(self, value):
+        if value is not True:
+            raise serializers.ValidationError("남은 코인이 소멸됨을 확인해야 탈퇴할 수 있습니다.")
+        return value

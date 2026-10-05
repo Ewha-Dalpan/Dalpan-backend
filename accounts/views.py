@@ -10,11 +10,12 @@ from coins.models import CoinWallet
 
 from .kakao import KakaoError, fetch_kakao_id
 from .models import LoginType, User
-from .serializers import ActiveTokenRefreshSerializer, KakaoLoginSerializer, KakaoSignupSerializer
+from .serializers import ActiveTokenRefreshSerializer, KakaoLoginSerializer, KakaoSignupSerializer, WithdrawSerializer
 from .services import (
     InvalidSignupToken, SignupBlocked, is_signup_blocked, issue_tokens,
     make_signup_token, read_signup_token, register_kakao_user,
 )
+from .withdrawal import withdraw_user
 
 
 class PublicAPIView(APIView):
@@ -99,3 +100,14 @@ class MeView(APIView):
         user = request.user
         balance = CoinWallet.objects.filter(user=user).values_list("balance", flat=True).first() or 0
         return Response({"nickname": user.nickname, "joined_at": user.created_at, "coin_balance": balance})
+    
+class WithdrawView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = WithdrawSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if request.user.is_staff:
+            return Response({"detail": "관리자 계정은 탈퇴할 수 없습니다."}, status=403)
+        withdraw_user(request.user.pk)
+        return Response(status=204)
