@@ -142,6 +142,8 @@ TERMS_VERSION = "v1.0"  # 약관 문서에 적힌 버전과 맞출 것
 CORS_ALLOWED_ORIGINS = ["http://localhost:8000"]
 KAKAO_ADMIN_KEY = env("KAKAO_ADMIN_KEY", default="")
 
+VERDICT_TIMEOUT_SECONDS = 600
+
 LANGUAGE_CODE = 'ko-kr'
 
 TIME_ZONE = 'Asia/Seoul'

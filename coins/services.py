@@ -51,3 +51,32 @@ def change_coins(*, user, tx_type, amount, idempotency_key,
         memo=memo, created_by=created_by,
     )
     return ledger, True
+
+VERDICT_COST = 1
+
+
+def spend_for_verdict(*, user, verdict_request):
+    """판결 요청 시 코인 차감. 판결 요청 생성과 같은 트랜잭션에서 호출. 잔액 부족이면 InsufficientCoins."""
+    return change_coins(
+        user=user,
+        tx_type=CoinTxType.VERDICT_SPEND,
+        amount=-VERDICT_COST,
+        idempotency_key=f"verdict-spend:{verdict_request.pk}",
+        case=verdict_request.case,
+    )
+
+
+def restore_for_verdict(*, verdict_request):
+    """판결 실패 시 차감했던 코인을 그대로 반환. 여러 번 호출해도 한 번만 반영. 차감 내역이 없으면 None."""
+    with transaction.atomic():
+        spend = CoinLedger.objects.filter(idempotency_key=f"verdict-spend:{verdict_request.pk}").first()
+        if spend is None:
+            return None
+        ledger, _ = change_coins(
+            user=spend.user,
+            tx_type=CoinTxType.VERDICT_RESTORE,
+            amount=-spend.amount,
+            idempotency_key=f"verdict-restore:{verdict_request.pk}",
+            case=spend.case,
+        )
+        return ledger
