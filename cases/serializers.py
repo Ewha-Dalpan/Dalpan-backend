@@ -44,7 +44,7 @@ class CaseCreateSerializer(serializers.Serializer):
 
 class SituationUpdateSerializer(serializers.Serializer):
     user_speaker_side = serializers.ChoiceField(choices=CaseSituation.UserSpeakerSide.choices, required=False)
-    summary = serializers.CharField(required=False, allow_blank=False)
+    summary = serializers.CharField(required=False, allow_blank=False, max_length=10000)
 
     def to_internal_value(self, data):
         unknown = set(data) - set(self.fields)

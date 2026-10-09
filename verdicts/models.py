@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -43,6 +45,11 @@ class Verdict(models.Model):
         related_name='verdicts',
     )
     case = models.ForeignKey('cases.Case', on_delete=models.CASCADE, related_name='verdicts')
+    title = models.CharField(max_length=100, blank=True)
+    relation = models.CharField(max_length=50, blank=True)
+    input_snapshot = models.JSONField(default=dict, blank=True)
+    public_title = models.CharField(max_length=100, blank=True)
+    public_summary = models.TextField(blank=True)
     fault_ratio = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
     )#과실비율
@@ -78,3 +85,45 @@ class VerdictReason(models.Model):
 
     class Meta:
         db_table = 'verdict_reasons'
+
+
+class VerdictFactor(models.Model):
+    class Side(models.TextChoices):
+        SELF = "SELF", "본인"
+        OTHER = "OTHER", "상대"
+    verdict = models.ForeignKey(Verdict, on_delete=models.CASCADE, related_name="factors")
+    key = models.CharField(max_length=50)
+    side = models.CharField(max_length=5, choices=Side.choices)
+    name = models.CharField(max_length=50)
+    summary = models.TextField()
+    evidence = models.JSONField(default=list)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    class Meta:
+        db_table = "verdict_factors"
+        ordering = ["sort_order", "id"]
+        constraints = [models.UniqueConstraint(fields=["verdict", "key"], name="unique_verdict_factor_key")]
+
+
+class VerdictFactorSource(models.Model):
+    class Kind(models.TextChoices):
+        SCHOLAR = "SCHOLAR", "논문"
+        WEB = "WEB", "기사"
+    factor = models.OneToOneField(VerdictFactor, on_delete=models.CASCADE, related_name="source")
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    title = models.CharField(max_length=500)
+    url = models.URLField(max_length=2048)
+    publisher = models.CharField(max_length=255, blank=True)
+    authors = models.JSONField(default=list, blank=True)
+    published_date = models.CharField(max_length=50, blank=True)
+    reference_summary = models.TextField()
+    class Meta:
+        db_table = "verdict_factor_sources"
+
+
+class VerdictShare(models.Model):
+    verdict = models.OneToOneField(Verdict, on_delete=models.CASCADE, related_name="share")
+    token = models.UUIDField(default=uuid4, unique=True, editable=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        db_table = "verdict_shares"

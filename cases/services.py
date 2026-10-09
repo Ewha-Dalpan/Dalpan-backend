@@ -98,6 +98,7 @@ def update_situation(*, user, case_id, changes):
         raise ValidationError('AI 상황 분석이 아직 완료되지 않았습니다.')
     if set(changes) - {'summary', 'user_speaker_side'}:
         raise ValidationError('화자 위치와 상황만 수정할 수 있습니다.')
+    situation.confirmed_at = None
     for key, value in changes.items():
         setattr(situation, key, value)
     situation.full_clean()
@@ -124,8 +125,9 @@ def request_judgment(*, user, case_id):
         _spend(user, req)
     req.stage = 'JUDGMENT'
     req.status = 'PENDING'
+    req.progress_step = 'PLANNING_FACTORS'
     req.started_at = timezone.now()
-    req.save(update_fields=['stage', 'status', 'started_at'])
+    req.save(update_fields=['stage', 'status', 'progress_step', 'started_at'])
     situation.confirmed_at = timezone.now()
     situation.save(update_fields=['confirmed_at', 'updated_at'])
     case.status = Case.Status.JUDGING
