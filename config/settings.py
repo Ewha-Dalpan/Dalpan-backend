@@ -144,6 +144,22 @@ KAKAO_ADMIN_KEY = env("KAKAO_ADMIN_KEY", default="")
 
 VERDICT_TIMEOUT_SECONDS = 600
 
+# Liner API
+LINER_API_KEY = env("LINER_API_KEY", default="")
+LINER_MODEL = env("LINER_MODEL", default="liner-mark-1.1")
+LINER_HTTP_TIMEOUT_SECONDS = env.int(
+    "LINER_HTTP_TIMEOUT_SECONDS",
+    default=180,
+)
+LINER_MAX_COMPLETION_TOKENS = env.int(
+    "LINER_MAX_COMPLETION_TOKENS",
+    default=16000,
+)
+
+# cases 서비스에서 사용하는 작업 등록 함수
+VERDICT_ANALYSIS_DISPATCHER = "verdicts.tasks.dispatch_analysis"
+VERDICT_JUDGMENT_DISPATCHER = "verdicts.tasks.dispatch_judgment"
+
 LANGUAGE_CODE = 'ko-kr'
 
 TIME_ZONE = 'Asia/Seoul'
@@ -162,3 +178,10 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# 요소별 참고 자료 검색 (기존 LINER_API_KEY 사용)
+LINER_SEARCH_MAX_RESULTS = env.int("LINER_SEARCH_MAX_RESULTS", default=3)
+LINER_SEARCH_TIMEOUT_SECONDS = env.int("LINER_SEARCH_TIMEOUT_SECONDS", default=20)
+
+# 예: https://frontend.example.com/shared (끝에 토큰을 붙인다)
+FRONTEND_SHARE_BASE_URL = env("FRONTEND_SHARE_BASE_URL", default="")

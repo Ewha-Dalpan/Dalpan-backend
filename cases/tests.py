@@ -6,7 +6,7 @@ from PIL import Image
 from django.core.files.uploadedfile import SimpleUploadedFile
 from unittest.mock import Mock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -34,17 +34,43 @@ class CaseFlowTests(TestCase):
         with patch('cases.services.get_dispatcher', return_value=Mock()):
             return submit_case(user=self.user, case_id=self.case.pk)
 
+    @override_settings(
+        LINER_API_KEY="",
+        VERDICT_ANALYSIS_DISPATCHER=None,
+    )
+    def test_unconfigured_ai_never_charges(self):
+        with self.assertRaises(AIUnavailable):
+            submit_case(user=self.user, case_id=self.case.pk)
+
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, 1)
+        self.assertFalse(VerdictRequest.objects.exists())
+
     def analyzed(self):
         req = self.submit()
         self.assertTrue(complete_analysis(req.pk, summary='상황 요약', conflict_core='갈등 핵심'))
         return req
 
-    def test_unconfigured_ai_never_charges(self):
-        with self.assertRaises(AIUnavailable):
-            submit_case(user=self.user, case_id=self.case.pk)
+    @override_settings(
+        LINER_API_KEY="",
+        VERDICT_ANALYSIS_DISPATCHER=None,
+    )
+    def test_new_case_unconfigured_ai_stores_nothing(self):
+        response = self.client.post(
+            "/api/cases/",
+            {
+                "relation": "연애",
+                "images": [self.image_upload()],
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(Case.objects.count(), 1)
+        self.assertFalse(VerdictRequest.objects.exists())
+
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, 1)
-        self.assertFalse(VerdictRequest.objects.exists())
 
     def test_insufficient_balance_rolls_back(self):
         self.wallet.balance = 0
@@ -187,14 +213,6 @@ class CaseFlowTests(TestCase):
         self.assertEqual(CaseImage.objects.count(), 1)
         self.assertFalse(VerdictRequest.objects.exists())
         self.assertEqual(callbacks, [])
-
-    def test_new_case_unconfigured_ai_stores_nothing(self):
-        response = self.client.post('/api/cases/', {'relation': '연애', 'images': [self.image_upload()]}, format='multipart')
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(Case.objects.count(), 1)
-        self.assertFalse(VerdictRequest.objects.exists())
-        self.wallet.refresh_from_db()
-        self.assertEqual(self.wallet.balance, 1)
 
     def test_upload_failure_rolls_back_coins_and_removes_files(self):
         from pathlib import Path
