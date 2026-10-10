@@ -5,6 +5,7 @@ from django.contrib.auth.models import update_last_login
 from django.core import signing
 from django.db import IntegrityError, transaction
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from uuid import uuid4
 
 from coins.models import CoinTxType, CoinWallet
@@ -102,3 +103,9 @@ def issue_tokens(user) -> dict:
     refresh = RefreshToken.for_user(user)
     update_last_login(None, user)
     return {"access": str(refresh.access_token), "refresh": str(refresh)}
+
+def revoke_all_tokens(user_id: int) -> int:
+    """회원의 발급된 refresh 토큰을 전부 무효화한다 (정지 처리 등)."""
+    ids = list(OutstandingToken.objects.filter(user_id=user_id).values_list("pk", flat=True))
+    BlacklistedToken.objects.bulk_create([BlacklistedToken(token_id=pk) for pk in ids], ignore_conflicts=True)
+    return len(ids)

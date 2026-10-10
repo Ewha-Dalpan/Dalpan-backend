@@ -11,6 +11,7 @@ class VerdictRequest(models.Model):
         DONE = 'DONE', '완료'
         FAILED = 'FAILED', '실패'
         AWAITING_CONFIRMATION = 'AWAITING_CONFIRMATION', '상황 확인 대기'
+        CANCELED = 'CANCELED','취소'
 
     case = models.ForeignKey(
         'cases.Case',
