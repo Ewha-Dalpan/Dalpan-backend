@@ -9,12 +9,31 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from cases.models import Case, CaseIssue, CaseSituation
-from coins.services import restore_for_verdict
+from coins.services import restore_for_verdict, spend_for_verdict
 
 from .models import Verdict, VerdictReason, VerdictRequest, VerdictFactor, VerdictFactorSource, VerdictReply
 
 
 ACTIVE = ("PENDING", "RUNNING")
+
+# --- 새 함수(접수/판결 시작/취소)에서 쓰는 상태·단계 값 ---
+PENDING = "PENDING"
+RUNNING = "RUNNING"
+AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
+DONE = "DONE"
+CANCELED = "CANCELED"
+STAGE_ANALYSIS = "ANALYSIS"
+STAGE_JUDGMENT = "JUDGMENT"
+# 같은 사건에 아래 상태의 요청이 있으면 새 접수(=이중 차감)를 막는다.
+BLOCKING = (PENDING, RUNNING, AWAITING_CONFIRMATION, DONE)
+
+
+class AlreadyRequested(Exception):
+    """같은 사건에 이미 진행 중이거나 완료된 요청이 있음 (이중 차감 방지)"""
+
+    def __init__(self, request):
+        super().__init__("이미 접수된 사건입니다.")
+        self.request = request
 
 
 def _locked_request(request_id):
@@ -31,6 +50,12 @@ def _locked_request(request_id):
 def _timeout():
     return timedelta(
         seconds=getattr(settings, "VERDICT_TIMEOUT_SECONDS", 600)
+    )
+
+
+def _abandon_after():
+    return timedelta(
+        days=getattr(settings, "VERDICT_ABANDON_DAYS", 30)
     )
 
 
@@ -289,3 +314,107 @@ def complete_analysis(
         )
 
     return True
+
+
+# ------------------------------------------------------------------
+# 접수 / 판결 시작 / 취소 / 방치 만료 (코인 연동)
+# ------------------------------------------------------------------
+def start_request(*, user, case):
+    """
+    사건 접수: 요청 생성 + 1톨 차감을 한 트랜잭션으로 처리한다.
+    - 잔액이 부족하면 InsufficientCoins가 발생하고 아무것도 저장되지 않는다.
+    - 같은 사건에 진행 중/완료 요청이 있으면 AlreadyRequested → 차감하지 않는다 (중복 클릭 방지).
+    - 사건 상태는 바꾸지 않는다 (분석이 끝나면 complete_analysis가 CONFIRMING으로 바꾼다).
+    started_at = 현재 단계가 시작된 시각 (시간 초과 판단 기준).
+    """
+    with transaction.atomic():
+        # 사건 → 요청 → 지갑 순서로 잠근다 (_locked_request와 같은 순서)
+        Case.objects.select_for_update().get(pk=case.pk)
+
+        existing = (
+            VerdictRequest.objects.filter(case_id=case.pk, status__in=BLOCKING)
+            .order_by("-id")
+            .first()
+        )
+        if existing is not None:
+            raise AlreadyRequested(existing)
+
+        req = VerdictRequest.objects.create(
+            case=case,
+            user=user,
+            status=PENDING,
+            stage=STAGE_ANALYSIS,
+            progress_step=STAGE_ANALYSIS,
+            started_at=timezone.now(),
+        )
+        spend_for_verdict(user=user, verdict_request=req)
+    return req
+
+
+def mark_running(request_id) -> bool:
+    """작업자가 AI 호출 직전에 호출. 이미 취소·실패 등으로 닫힌 요청이면 False → AI를 호출하지 않는다."""
+    with transaction.atomic():
+        req = _locked_request(request_id)
+        if req.status != PENDING:
+            return False
+        req.status = RUNNING
+        req.save(update_fields=["status"])
+    return True
+
+
+def start_verdict(request_id) -> bool:
+    """
+    '이대로 판결받기': 상황확인 대기 요청을 같은 요청의 판결 단계로 넘긴다. 추가 차감은 없다.
+    (새 요청을 만들면 접수 때의 차감과 연결이 끊겨 실패 시 코인이 반환되지 않는다.)
+    True일 때만 판결 작업을 시작할 것 (중복 클릭이면 False).
+    """
+    with transaction.atomic():
+        req = _locked_request(request_id)
+        if req.status != AWAITING_CONFIRMATION or req.stage != STAGE_ANALYSIS:
+            return False
+
+        req.status = PENDING
+        req.stage = STAGE_JUDGMENT
+        req.progress_step = STAGE_JUDGMENT
+        req.started_at = timezone.now()  # 판결 단계의 시간 초과 기준을 새로 시작 (확인 대기 시간은 제외)
+        req.save(update_fields=["status", "stage", "progress_step", "started_at"])
+
+        judging = getattr(Case.Status, "JUDGING", None)
+        if judging is not None:
+            Case.objects.filter(pk=req.case_id).update(
+                status=judging,
+                updated_at=timezone.now(),
+            )
+    return True
+
+
+def cancel_request(request_id) -> bool:
+    """
+    '새로 시작': 확인 대기 중인 기존 사건을 중단한다. 코인은 반환하지 않는다.
+    분석·판결이 진행 중이면 False ('분석이 끝나면 새로 시작할 수 있어요' 안내).
+    """
+    with transaction.atomic():
+        req = _locked_request(request_id)
+        if req.status != AWAITING_CONFIRMATION:
+            return False
+        req.status = CANCELED
+        req.progress_step = CANCELED
+        req.finished_at = timezone.now()
+        req.save(update_fields=["status", "progress_step", "finished_at"])
+    return True
+
+
+def expire_abandoned():
+    """접수 후 VERDICT_ABANDON_DAYS일이 지난 확인 대기 사건을 CANCELED(미반환) 처리하고, 처리한 사건 ID 목록을 반환한다."""
+    cutoff = timezone.now() - _abandon_after()
+
+    rows = list(
+        VerdictRequest.objects.annotate(
+            active_since=Coalesce("started_at", "created_at"),
+        ).filter(
+            status=AWAITING_CONFIRMATION,
+            active_since__lt=cutoff,
+        ).values_list("pk", "case_id")
+    )
+
+    return [case_id for request_id, case_id in rows if cancel_request(request_id)]
