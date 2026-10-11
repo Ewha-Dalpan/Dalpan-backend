@@ -10,4 +10,4 @@ class Command(BaseCommand):
         failed = fail_stale_requests()
         expired = expire_abandoned()
         self.stdout.write(f"시간 초과 실패 처리: {failed}건 / 방치 만료: {len(expired)}건")
-        # expired(사건 ID 목록)의 업로드 이미지 삭제는 이미지 정책 확정 후 여기에 연결
+        # 이미지 보관 기간 정리는 cleanup_case_images 명령으로 별도 실행한다.

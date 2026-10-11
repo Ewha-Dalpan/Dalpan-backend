@@ -209,6 +209,7 @@ def process_request(request_id):
                 title=result["title"], relation=situation.relation,
                 recommended_reply=result["recommended_reply"],
                 public_title=result["public_title"], public_summary=result["public_summary"],
+                public_one_line=result["public_one_line"],
                 input_snapshot=result["input_snapshot"],
                 one_line=result["one_line"],
                 case_summary=result["case_summary"],

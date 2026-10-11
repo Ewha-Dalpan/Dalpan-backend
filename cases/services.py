@@ -22,8 +22,8 @@ def owned_case(user, case_id, *, lock=False):
 def create_case(*, user, relation, images):
     """톨 차감과 사건·관계·사진 저장을 함께 확정하고 분석을 요청한다."""
     images = list(images)
-    if not 1 <= len(images) <= 6:
-        raise ValidationError('대화 이미지를 1~6장 첨부해주세요.')
+    from .uploads import validate_case_images
+    validate_case_images(images)
     dispatcher = get_dispatcher('ANALYSIS')
     saved_files = []
     try:

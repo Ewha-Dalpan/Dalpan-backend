@@ -57,7 +57,8 @@ SELF/OTHER는 사진의 LEFT/RIGHT와 다르다. 사용자 확인 화자 위치�
 - 취소 후 다시 생성하면 토큰이 바뀌어 이전 링크는 계속 무효
 - 공유는 배심원 공개를 자동으로 실행하지 않는다.
 
-공개 응답에는 사진, 원문, 입력 스냅샷, 개인용 판결문과 답장을 포함하지 않는다.
+공유 응답에는 사진, 원문, 입력 스냅샷, 개인용 판결문과 답장을 포함하지 않는다.
+공개용 한 줄 결과와 양측 판단 요소 및 참고 출처는 별도 익명화된 필드로 제공한다.
 공개용 텍스트는 모델이 익명화한 결과이므로 프론트에서 public_preview를 보여주어
 작성자가 공개할 내용을 확인할 수 있게 한다.
 숨김·삭제 사건은 공개 링크로도 조회할 수 없다.
@@ -94,3 +95,47 @@ SQLite 환경에서는 워커를 하나만 실행한다.
 LINER_API_KEY는 기존 .env 키를 사용한다.
 검색 설정: LINER_SEARCH_MAX_RESULTS(기본 3, 최대 5), LINER_SEARCH_TIMEOUT_SECONDS(기본 20).
 모델 호출과 검색은 모두 기존 요청 제한 시간 안에서 수행되며 오래된 결과는 저장하지 않는다.
+
+
+## 공유 유입 화면 확장
+
+공유 생성 POST의 verdict, 비로그인 공유 GET, 소유자 판결의 public_preview는
+동일한 공유용 객체를 반환한다. 배심원 publish 응답은 기존의 중립적인 요약 구조를 유지한다.
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| case_id | integer | 사건 ID |
+| case_number | string | 사건 번호 |
+| title | string | 공개용 제목 |
+| relation | string | 관계 |
+| case_summary | string | 공개용 상황 요약 |
+| fault_ratio | integer | 본인 비율 |
+| other_fault_ratio | integer | 상대 비율 |
+| one_line | string | 공개용 한 줄 결과 |
+| self_factors | object[] | 본인 공개용 판단 요소 |
+| other_factors | object[] | 상대 공개용 판단 요소 |
+
+| 판단 요소 필드 | 타입 | 설명 |
+|---|---|---|
+| id | integer | 요소 ID |
+| side | string | SELF / OTHER |
+| name | string | 익명화된 과실 키워드 |
+| summary | string | 익명화된 사건 관찰과 판단 이유 |
+| can_expand | boolean | 참고 출처와 공개용 참고 설명이 있을 때 true |
+| source | object 또는 null | 참고 출처 |
+
+source는 kind, title, url, publisher, authors, published_date, reference_summary를 포함한다.
+reference_summary는 이 출처가 해당 판단 요소에 왜 참고되는지 설명하는 공개용 텍스트다.
+검색 설명을 바탕으로 하며 논문 전체를 읽었다고 주장하지 않는다.
+적합한 출처가 없으면 source=null, can_expand=false다.
+원문 evidence 인덱스와 내부 key는 공유 요소에 포함하지 않는다.
+
+새 판결 생성 시 public_one_line 및 요소별 public_name, public_summary,
+public_reference_summary를 함께 생성·검증·저장한다. 개인용 문구로 대체하지 않는다.
+모델 익명화는 완벽한 보장을 제공하지 않으므로 public_preview를 확인한 뒤 공유하도록 한다.
+기존 판결은 마이그레이션 이후에도 공개용 확장 필드가 비어 있다.
+이 경우 one_line=""와 빈 요소 목록을 반환하며 원본 문구로 자동 보충하지 않는다.
+기존 판결의 상세 공유가 필요하면 별도의 익명화 재생성 작업이 필요하다.
+
+DB 변경 적용: python manage.py migrate
+로그인 유도 버튼과 실제 공유 화면은 프론트에서 구현한다.

@@ -71,6 +71,7 @@ def complete_request(
     recommended_reply="",
     public_title="",
     public_summary="",
+    public_one_line="",
     input_snapshot=None,
     **optional,
 ):
@@ -82,6 +83,7 @@ def complete_request(
             "one_line": optional.get("one_line", ""), "case_summary": optional.get("case_summary", ""),
             "recommended_reply": recommended_reply,
             "public_title": public_title, "public_summary": public_summary,
+            "public_one_line": public_one_line,
             "input_snapshot": input_snapshot, "factors": factors,
         })
         if not result.is_valid():
@@ -125,6 +127,7 @@ def complete_request(
             case_id=req.case_id,
             title=title, relation=relation, input_snapshot=input_snapshot or {},
             public_title=public_title, public_summary=public_summary,
+            public_one_line=public_one_line,
             fault_ratio=fault_ratio,
             judgment_text=judgment_text.strip(),
             **optional,
@@ -145,6 +148,8 @@ def complete_request(
             item = VerdictFactor.objects.create(
                 verdict=verdict, key=factor["key"], side=factor["side"],
                 name=factor["name"], summary=factor["summary"],
+                public_name=factor["public_name"], public_summary=factor["public_summary"],
+                public_reference_summary=factor["public_reference_summary"],
                 evidence=factor["evidence"], sort_order=index,
             )
             if factor.get("source"):

@@ -81,3 +81,30 @@ class JudgmentView(APIView):
     def post(self, request, case_id):
         req = request_judgment(user=request.user, case_id=case_id)
         return Response(VerdictRequestSerializer(req).data, status=status.HTTP_202_ACCEPTED)
+
+
+class CaseImageDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, case_id, image_id):
+        from django.http import FileResponse, Http404
+        from django.shortcuts import get_object_or_404
+        from .models import CaseImage
+        case = owned_case(request.user, case_id)
+        image = get_object_or_404(CaseImage, case=case, pk=image_id)
+        from PIL import Image, UnidentifiedImageError
+        try:
+            image_file = image.image_key.open("rb")
+            try:
+                with Image.open(image_file) as decoded:
+                    content_type = Image.MIME.get(decoded.format, "application/octet-stream")
+                image_file.seek(0)
+                response = FileResponse(image_file, content_type=content_type)
+            except Exception:
+                image_file.close()
+                raise
+        except (FileNotFoundError, UnidentifiedImageError):
+            raise Http404("이미지를 찾을 수 없습니다.") from None
+        response["Cache-Control"] = "private, no-store"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response

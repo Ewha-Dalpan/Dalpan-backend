@@ -82,6 +82,7 @@ JUDGMENT_SCHEMA = object_schema({
     "title": {"type": "string"},
     "public_title": {"type": "string"},
     "public_summary": {"type": "string"},
+    "public_one_line": {"type": "string"},
     "fault_ratio": {"type": "integer"},
     "one_line": {"type": "string"},
     "case_summary": {"type": "string"},
@@ -91,6 +92,9 @@ JUDGMENT_SCHEMA = object_schema({
         **FACTOR_PROPERTIES,
         "source_id": {"type": ["string", "null"]},
         "reference_summary": {"type": "string"},
+        "public_name": {"type": "string"},
+        "public_summary": {"type": "string"},
+        "public_reference_summary": {"type": "string"},
     })},
 })
 
@@ -145,7 +149,13 @@ class PlanSerializer(serializers.Serializer):
             raise serializers.ValidationError("판단 요소 키가 중복됩니다.")
         return factors
 
-class FinalFactorSerializer(FactorSerializer):
+class PublicFactorFieldsSerializer(FactorSerializer):
+    public_name = serializers.CharField(max_length=50)
+    public_summary = serializers.CharField(max_length=5000)
+    public_reference_summary = serializers.CharField(allow_blank=True, max_length=5000)
+
+
+class FinalFactorSerializer(PublicFactorFieldsSerializer):
     source_id = serializers.CharField(allow_null=True, max_length=100)
     reference_summary = serializers.CharField(allow_blank=True, max_length=5000)
 
@@ -162,6 +172,7 @@ class JudgmentResultSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=100, allow_blank=True)
     public_title = serializers.CharField(max_length=100, allow_blank=True)
     public_summary = serializers.CharField(max_length=5000, allow_blank=True)
+    public_one_line = serializers.CharField(max_length=255, allow_blank=True)
     fault_ratio = serializers.IntegerField(min_value=0, max_value=100)
     one_line = serializers.CharField(max_length=255, allow_blank=True)
     case_summary = serializers.CharField(max_length=10000, allow_blank=True)
@@ -171,7 +182,7 @@ class JudgmentResultSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         if attrs["judgeable"]:
-            for field in ["title", "public_title", "public_summary", "one_line", "case_summary", "recommended_reply"]:
+            for field in ["title", "public_title", "public_summary", "public_one_line", "one_line", "case_summary", "recommended_reply"]:
                 if not attrs[field]:
                     raise serializers.ValidationError(f"{field} 값이 없습니다.")
             if not attrs["factors"]:
@@ -473,5 +484,7 @@ def judge_case(*, situation, conflict_core, analysis, check_progress=None):
             if reference_summary:
                 raise AIClientError("출처 없이 참고 자료 설명이 생성되었습니다.")
             factor["source"] = None
+        if bool(factor["source"]) != bool(factor["public_reference_summary"].strip()):
+            raise AIClientError("공개용 참고 설명과 출처가 일치하지 않습니다.")
     result["input_snapshot"] = context
     return result

@@ -51,6 +51,7 @@ class Verdict(models.Model):
     input_snapshot = models.JSONField(default=dict, blank=True)
     public_title = models.CharField(max_length=100, blank=True)
     public_summary = models.TextField(blank=True)
+    public_one_line = models.CharField(max_length=255, blank=True)
     fault_ratio = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
     )#과실비율
@@ -97,6 +98,9 @@ class VerdictFactor(models.Model):
     side = models.CharField(max_length=5, choices=Side.choices)
     name = models.CharField(max_length=50)
     summary = models.TextField()
+    public_name = models.CharField(max_length=50, blank=True)
+    public_summary = models.TextField(blank=True)
+    public_reference_summary = models.TextField(blank=True)
     evidence = models.JSONField(default=list)
     sort_order = models.PositiveSmallIntegerField(default=0)
     class Meta:

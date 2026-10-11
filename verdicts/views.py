@@ -38,7 +38,7 @@ class CaseShareView(APIView):
         from django.urls import reverse
         from django.conf import settings
         from .publication import create_share
-        from .serializers import PublicVerdictSerializer
+        from .serializers import SharedVerdictSerializer
         share = create_share(request.user, case_id)
         path = reverse("verdict-shared-detail", kwargs={"token": share.token})
         return Response({
@@ -48,7 +48,7 @@ class CaseShareView(APIView):
                 if settings.FRONTEND_SHARE_BASE_URL else request.build_absolute_uri(path)
             ),
             "share_api_url": request.build_absolute_uri(path),
-            "verdict": PublicVerdictSerializer(share.verdict).data,
+            "verdict": SharedVerdictSerializer(share.verdict).data,
         })
     def delete(self, request, case_id):
         from .publication import revoke_share
@@ -60,14 +60,14 @@ class SharedVerdictDetailView(APIView):
     authentication_classes = []
     def get(self, request, token):
         from .models import VerdictShare
-        from .serializers import PublicVerdictSerializer
+        from .serializers import SharedVerdictSerializer
         share = get_object_or_404(
-            VerdictShare.objects.select_related("verdict"),
+            VerdictShare.objects.select_related("verdict").prefetch_related("verdict__factors__source"),
             token=token, is_active=True,
             verdict__case__deleted_at__isnull=True, verdict__case__is_hidden=False,
             verdict__case__status="JUDGED", verdict__request__status="DONE",
         )
-        return Response(PublicVerdictSerializer(share.verdict).data)
+        return Response(SharedVerdictSerializer(share.verdict).data)
 
 class CasePublishView(APIView):
     permission_classes = [IsAuthenticated]
