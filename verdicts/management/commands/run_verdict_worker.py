@@ -24,7 +24,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                "Verdict 워커 시작. 현재 SQLite 환경에서는 하나만 실행하세요."
+                "Verdict 워커 시작. 하나의 워커 프로세스로 순차 처리합니다."
             )
         )
 

@@ -1,6 +1,6 @@
 """저장 전에 구조화된 판결 결과를 검증한다."""
 from rest_framework import serializers
-from .ai_client import FactorSerializer
+from .ai_client import PublicFactorFieldsSerializer
 from .search_client import valid_source_url
 
 class SourceSerializer(serializers.Serializer):
@@ -17,7 +17,7 @@ class SourceSerializer(serializers.Serializer):
             raise serializers.ValidationError("올바른 외부 출처 URL이 아닙니다.")
         return value
 
-class StoredFactorSerializer(FactorSerializer):
+class StoredFactorSerializer(PublicFactorFieldsSerializer):
     source = SourceSerializer(allow_null=True)
 
 class StoredJudgmentSerializer(serializers.Serializer):
@@ -30,6 +30,7 @@ class StoredJudgmentSerializer(serializers.Serializer):
     recommended_reply = serializers.CharField(max_length=5000)
     public_title = serializers.CharField(max_length=100)
     public_summary = serializers.CharField(max_length=5000)
+    public_one_line = serializers.CharField(max_length=255)
     input_snapshot = serializers.JSONField()
     factors = StoredFactorSerializer(many=True, min_length=1, max_length=4)
 
@@ -43,6 +44,8 @@ class StoredJudgmentSerializer(serializers.Serializer):
         if len(keys) != len(set(keys)):
             raise serializers.ValidationError("판단 요소 키가 중복됩니다.")
         for factor in attrs["factors"]:
+            if bool(factor["source"]) != bool(factor["public_reference_summary"].strip()):
+                raise serializers.ValidationError("공개용 참고 설명과 출처가 일치하지 않습니다.")
             if any(index >= len(snapshot["messages"]) for index in factor["evidence"]):
                 raise serializers.ValidationError("대화 근거 번호가 올바르지 않습니다.")
         return attrs

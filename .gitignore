@@ -9,3 +9,7 @@ __pycache__/
 
 # Django
 db.sqlite3
+
+# Private uploads and collected static assets
+private_media/
+staticfiles/

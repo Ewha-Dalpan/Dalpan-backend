@@ -90,6 +90,17 @@ reference_summary must be grounded in its supplied reference description.
 Do not claim research proves an exact percentage or that the full source was read.
 For no reference, use source_id=null and reference_summary="".
 public_title and public_summary are an anonymous public projection for sharing and jury discussion.
+public_one_line is an anonymous outcome matching fault_ratio, at most 255 characters.
+Each factor must include public_name (at most 50 characters), public_summary, and
+public_reference_summary for anonymous sharing. Preserve the factor's meaning and side.
+public_summary explains the case observation; public_reference_summary explains why the
+selected research is relevant to this factor using only supplied reference descriptions.
+For no source, public_reference_summary must be empty; with a source it must be non-empty.
+In ALL public fields (including public_one_line and factor public fields), remove identifying
+details, names, handles, phone numbers, locations, school/workplace identifiers, dates/times,
+verbatim quotations, and combinations of details that identify participants.
+Use generic descriptions and 본인/상대. Never copy private wording automatically.
+Research is context, not proof of a percentage. Never claim access to full papers.
 public_summary must describe both parties' actions and context fairly, without AI blame conclusions.
 Never include names, handles, phone numbers, addresses, school/workplace/location identifiers,
 specific dates/times, verbatim message quotations or identifying details in either public field.

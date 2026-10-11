@@ -1,9 +1,17 @@
 from rest_framework import serializers
+from django.urls import reverse
 
 from .models import Case, CaseImage, CaseSituation
 
 
 class CaseImageSerializer(serializers.ModelSerializer):
+    image_key = serializers.SerializerMethodField()
+
+    def get_image_key(self, obj):
+        path = reverse("case-image-detail", kwargs={"case_id": obj.case_id, "image_id": obj.pk})
+        request = self.context.get("request")
+        return request.build_absolute_uri(path) if request else path
+
     class Meta:
         model = CaseImage
         fields = ['id', 'image_key', 'sort_order']
@@ -40,6 +48,11 @@ class CaseCreateSerializer(serializers.Serializer):
         choices=['연애', '친구', '가족', '학교·팀플', '기타'],
     )
     images = serializers.ListField(child=serializers.ImageField(), min_length=1, max_length=6)
+
+    def validate_images(self, images):
+        from .uploads import validate_case_images
+        validate_case_images(images)
+        return images
 
 
 class SituationUpdateSerializer(serializers.Serializer):

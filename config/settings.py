@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import environ
 from datetime import timedelta
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -102,10 +103,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': env.db('DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}')
 }
 
 
@@ -139,10 +137,11 @@ KAKAO_REST_API_KEY = env("KAKAO_REST_API_KEY")
 KAKAO_CLIENT_SECRET = env("KAKAO_CLIENT_SECRET", default="")
 KAKAO_ALLOWED_REDIRECT_URIS = env.list("KAKAO_ALLOWED_REDIRECT_URIS")
 TERMS_VERSION = "v1.0"  # 약관 문서에 적힌 버전과 맞출 것
-CORS_ALLOWED_ORIGINS = ["http://localhost:8000"]
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:8000"])
 KAKAO_ADMIN_KEY = env("KAKAO_ADMIN_KEY", default="")
 
-VERDICT_TIMEOUT_SECONDS = 600
+VERDICT_TIMEOUT_SECONDS = env.int("VERDICT_TIMEOUT_SECONDS", default=600)
+VERDICT_ABANDON_DAYS = env.int("VERDICT_ABANDON_DAYS", default=30)
 
 # Liner API
 LINER_API_KEY = env("LINER_API_KEY", default="")
@@ -185,3 +184,50 @@ LINER_SEARCH_TIMEOUT_SECONDS = env.int("LINER_SEARCH_TIMEOUT_SECONDS", default=2
 
 # 예: https://frontend.example.com/shared (끝에 토큰을 붙인다)
 FRONTEND_SHARE_BASE_URL = env("FRONTEND_SHARE_BASE_URL", default="")
+
+
+# Uploaded conversations are private; never publicly serve MEDIA_ROOT.
+MEDIA_ROOT = Path(env("MEDIA_ROOT", default=str(BASE_DIR / "private_media")))
+MEDIA_URL = "/private-media/"
+STATIC_ROOT = Path(env("STATIC_ROOT", default=str(BASE_DIR / "staticfiles")))
+DEPLOYMENT_ENV = env("DEPLOYMENT_ENV", default="development")
+IS_PRODUCTION = DEPLOYMENT_ENV == "production"
+CASE_IMAGE_MAX_BYTES = env.int("CASE_IMAGE_MAX_BYTES", default=5 * 1024 * 1024)
+CASE_IMAGES_MAX_TOTAL_BYTES = env.int("CASE_IMAGES_MAX_TOTAL_BYTES", default=20 * 1024 * 1024)
+CASE_IMAGE_MAX_PIXELS = env.int("CASE_IMAGE_MAX_PIXELS", default=20_000_000)
+CASE_IMAGE_RETENTION_DAYS = env.int("CASE_IMAGE_RETENTION_DAYS", default=0)
+if min(CASE_IMAGE_MAX_BYTES, CASE_IMAGES_MAX_TOTAL_BYTES, CASE_IMAGE_MAX_PIXELS) <= 0:
+    raise ImproperlyConfigured("Image upload limits must be positive.")
+if CASE_IMAGE_RETENTION_DAYS < 0:
+    raise ImproperlyConfigured("Image retention days must be non-negative.")
+CASE_STORAGE_BACKEND = env("CASE_STORAGE_BACKEND", default="local")
+if CASE_STORAGE_BACKEND not in {"local", "s3"}:
+    raise ImproperlyConfigured("CASE_STORAGE_BACKEND must be local or s3.")
+if CASE_STORAGE_BACKEND == "s3":
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3.S3Storage",
+            "OPTIONS": {
+                "bucket_name": env("AWS_STORAGE_BUCKET_NAME"),
+                "region_name": env("AWS_S3_REGION_NAME", default="ap-northeast-2"),
+                "default_acl": None, "querystring_auth": True,
+                "querystring_expire": 300, "file_overwrite": False, "custom_domain": None,
+            },
+        },
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=IS_PRODUCTION)
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=IS_PRODUCTION)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=IS_PRODUCTION)
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0)
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+# Enable only behind a trusted proxy which sets this header itself.
+if env.bool("TRUST_PROXY_HTTPS_HEADER", default=False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+if IS_PRODUCTION:
+    if DEBUG or not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
+        raise ImproperlyConfigured("Production requires DEBUG=False and explicit ALLOWED_HOSTS.")
+    if DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
+        raise ImproperlyConfigured("Production requires a PostgreSQL DATABASE_URL.")
+    if CASE_STORAGE_BACKEND != "s3":
+        raise ImproperlyConfigured("Production requires private S3 storage.")

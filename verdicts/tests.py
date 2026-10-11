@@ -41,13 +41,16 @@ def final_data():
     return {
         "judgeable": True, "title": "약속 직전 연락 공백 사건",
         "public_title": "연락 방식 갈등", "public_summary": "약속을 확인하는 과정에서 양측의 연락 방식과 표현에 갈등이 발생했다.",
+        "public_one_line": "상대 쪽으로 저울이 기울었어요.",
         "fault_ratio": 10, "one_line": "상대 쪽으로 저울이 기울었어요.",
         "case_summary": "수정된 상황 분석을 바탕으로 한 요약",
         "judgment_text": "대인관계상 참고 의견으로 상대의 연락 공백이 더 큰 책임입니다.",
         "recommended_reply": "다음에는 늦어질 것 같으면 미리 알려줬으면 좋겠어.",
         "factors": [
             {**{k: v for k, v in f.items() if k not in ("scholar_query", "web_query")},
-             "source_id": None, "reference_summary": ""}
+             "source_id": None, "reference_summary": "",
+             "public_name": f["name"], "public_summary": f["summary"],
+             "public_reference_summary": ""}
             for f in factor_plan()["factors"]
         ],
     }
@@ -136,7 +139,7 @@ class VerdictPipelineTests(TestCase):
     def test_source_saved_and_returned_with_expandable_chip(self):
         self.start_judgment()
         final = final_data()
-        final["factors"][0].update(source_id="scholar_0", reference_summary="응답성 연구를 참고했습니다.")
+        final["factors"][0].update(source_id="scholar_0", reference_summary="응답성 연구를 참고했습니다.", public_reference_summary="응답성 연구를 판단에 참고했습니다.")
         with patch("verdicts.ai_client._call_liner", side_effect=[
             factor_plan(),
             {"selections": [
@@ -156,6 +159,10 @@ class VerdictPipelineTests(TestCase):
         self.assertEqual(factor["source"]["authors"], ["Researcher"])
         verdict = Verdict.objects.get(request=self.req)
         self.assertEqual(verdict.input_snapshot["confirmed_summary"], self.situation.summary)
+        share = self.client.post(f"/api/verdicts/cases/{self.case.pk}/share/")
+        public_factor = share.data["verdict"]["other_factors"][0]
+        self.assertEqual(public_factor["source"]["reference_summary"], "응답성 연구를 판단에 참고했습니다.")
+
 
     def test_no_edit_after_final_request(self):
         self.start_judgment()
@@ -228,6 +235,68 @@ class VerdictPipelineTests(TestCase):
             404,
         )
 
+    def test_shared_details_use_public_text_and_include_sources(self):
+        from .models import VerdictFactorSource
+        verdict = self.finish()
+        factor = verdict.factors.get(side="OTHER")
+        factor.public_reference_summary = "응답성 연구가 연락 기대를 이해하는 데 참고됩니다."
+        factor.save()
+        reference = source()
+        reference.pop("description")
+        VerdictFactorSource.objects.create(
+            factor=factor, **reference, reference_summary="비밀사용자 010-1234-5678의 원문 설명",
+        )
+        # Poison every private field to ensure the shared serializer never uses them.
+        verdict.title = "비밀사용자"
+        verdict.one_line = "010-1234-5678"
+        verdict.judgment_text = "비공개 전체 판결"
+        verdict.save()
+        verdict.factors.update(name="비밀사용자", summary="010-1234-5678")
+        share = self.client.post(f"/api/verdicts/cases/{self.case.pk}/share/")
+        self.assertEqual(share.status_code, 200)
+        anonymous = APIClient().get(f"/api/verdicts/shared/{share.data['token']}/")
+        self.assertEqual(anonymous.status_code, 200)
+        self.assertEqual(share.data["verdict"], anonymous.data)
+        self.assertEqual(anonymous.data["one_line"], final_data()["public_one_line"])
+        other = anonymous.data["other_factors"][0]
+        self.assertEqual(other["name"], "연락 공백")
+        self.assertEqual(other["summary"], "약속 확인 연락에 응답하지 않음")
+        self.assertTrue(other["can_expand"])
+        self.assertEqual(other["source"]["kind"], "SCHOLAR")
+        self.assertEqual(other["source"]["url"], "https://example.org/research")
+        self.assertEqual(other["source"]["reference_summary"], factor.public_reference_summary)
+        self.assertNotIn("evidence", other)
+        self.assertNotIn("key", other)
+        payload = json.dumps(anonymous.data, ensure_ascii=False)
+        for secret in ["비밀사용자", "010-1234-5678", "비공개 전체 판결"]:
+            self.assertNotIn(secret, payload)
+        preview = self.client.get(f"/api/verdicts/cases/{self.case.pk}/").data["public_preview"]
+        self.assertEqual(preview, anonymous.data)
+        # Jury publication keeps its original neutral projection.
+        publication = self.client.post(f"/api/verdicts/cases/{self.case.pk}/publish/")
+        self.assertNotIn("self_factors", publication.data["verdict"])
+
+    def test_legacy_shared_rows_never_fall_back_to_private_fields(self):
+        verdict = self.finish()
+        Verdict.objects.filter(pk=verdict.pk).update(public_one_line="")
+        verdict.factors.update(public_name="", public_summary="", public_reference_summary="")
+        share = self.client.post(f"/api/verdicts/cases/{self.case.pk}/share/")
+        response = APIClient().get(f"/api/verdicts/shared/{share.data['token']}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["one_line"], "")
+        self.assertEqual(response.data["self_factors"], [])
+        self.assertEqual(response.data["other_factors"], [])
+
+    def test_incomplete_public_factor_is_omitted(self):
+        verdict = self.finish()
+        verdict.factors.filter(side="SELF").update(public_summary="")
+        share = self.client.post(f"/api/verdicts/cases/{self.case.pk}/share/")
+        self.assertEqual(share.data["verdict"]["self_factors"], [])
+        self.assertEqual(len(share.data["verdict"]["other_factors"]), 1)
+        other = share.data["verdict"]["other_factors"][0]
+        self.assertFalse(other["can_expand"])
+        self.assertIsNone(other["source"])
+
     def test_invalid_factor_does_not_partially_store(self):
         self.start_judgment()
         snapshot = {"relation": "연애", "messages": analysis_data()["messages"]}
@@ -257,8 +326,8 @@ class SourcePipelineTests(TestCase):
 
     def test_scholar_priority_web_only_for_unmatched_factor(self):
         final = final_data()
-        final["factors"][0].update(source_id="scholar_0", reference_summary="응답성 연구 참고")
-        final["factors"][1].update(source_id="web_0", reference_summary="대화 방식 기사 참고")
+        final["factors"][0].update(source_id="scholar_0", reference_summary="응답성 연구 참고", public_reference_summary="응답성 연구 참고")
+        final["factors"][1].update(source_id="web_0", reference_summary="대화 방식 기사 참고", public_reference_summary="대화 방식 기사 참고")
         result, search = self.run_pipeline([
             factor_plan(),
             {"selections": [
@@ -318,6 +387,31 @@ class SourcePipelineTests(TestCase):
         plan["factors"][0]["evidence"] = [999]
         with self.assertRaises(AIClientError):
             self.run_pipeline([plan], [])
+
+    def test_public_source_explanation_is_required_for_selected_source(self):
+        final = final_data()
+        final["factors"][0].update(source_id="scholar_0", reference_summary="연구 참고")
+        with self.assertRaises(AIClientError):
+            self.run_pipeline([
+                factor_plan(),
+                {"selections": [
+                    {"factor_key": "gap", "source_id": "scholar_0", "reference_summary": "연구 참고"},
+                    {"factor_key": "tone", "source_id": None, "reference_summary": ""},
+                ]},
+                final,
+            ], [[source()], [], []])
+
+    def test_public_explanation_without_source_is_rejected(self):
+        final = final_data()
+        final["factors"][0]["public_reference_summary"] = "없는 논문 참고"
+        with self.assertRaises(AIClientError):
+            self.run_pipeline([factor_plan(), final], [[], [], [], []])
+
+    def test_missing_public_generation_fields_is_rejected(self):
+        final = final_data()
+        del final["public_one_line"]
+        with self.assertRaises(AIClientError):
+            self.run_pipeline([factor_plan(), final], [[], [], [], []])
 
     def test_search_http_shape_and_invalid_urls_filtered(self):
         response = Mock(ok=True)

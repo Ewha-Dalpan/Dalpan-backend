@@ -37,6 +37,53 @@ class PublicVerdictSerializer(serializers.ModelSerializer):
     def get_other_fault_ratio(self, obj):
         return 100 - obj.fault_ratio
 
+class SharedFactorSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source="public_name", read_only=True)
+    summary = serializers.CharField(source="public_summary", read_only=True)
+    source = serializers.SerializerMethodField()
+    can_expand = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VerdictFactor
+        fields = ["id", "side", "name", "summary", "can_expand", "source"]
+        read_only_fields = fields
+
+    def get_can_expand(self, obj):
+        return hasattr(obj, "source") and bool(obj.public_reference_summary.strip())
+
+    def get_source(self, obj):
+        if not self.get_can_expand(obj):
+            return None
+        data = dict(SourceSerializer(obj.source).data)
+        # Source metadata comes from research, but the explanation is case-specific.
+        data["reference_summary"] = obj.public_reference_summary
+        return data
+
+
+class SharedVerdictSerializer(PublicVerdictSerializer):
+    one_line = serializers.CharField(source="public_one_line", read_only=True)
+    self_factors = serializers.SerializerMethodField()
+    other_factors = serializers.SerializerMethodField()
+
+    class Meta(PublicVerdictSerializer.Meta):
+        fields = PublicVerdictSerializer.Meta.fields + ["one_line", "self_factors", "other_factors"]
+        read_only_fields = fields
+
+    def _factors(self, obj, side):
+        # Legacy rows have no public projection. Never fall back to private text.
+        factors = [
+            factor for factor in obj.factors.all()
+            if factor.side == side and factor.public_name.strip() and factor.public_summary.strip()
+        ]
+        return SharedFactorSerializer(factors, many=True).data
+
+    def get_self_factors(self, obj):
+        return self._factors(obj, "SELF")
+
+    def get_other_factors(self, obj):
+        return self._factors(obj, "OTHER")
+
+
 class VerdictSerializer(serializers.ModelSerializer):
     case_number = serializers.SerializerMethodField()
     other_fault_ratio = serializers.SerializerMethodField()
@@ -44,7 +91,7 @@ class VerdictSerializer(serializers.ModelSerializer):
     self_factors = serializers.SerializerMethodField()
     other_factors = serializers.SerializerMethodField()
     reasons = serializers.SerializerMethodField()
-    public_preview = PublicVerdictSerializer(source="*", read_only=True)
+    public_preview = SharedVerdictSerializer(source="*", read_only=True)
     is_public = serializers.BooleanField(source="case.is_public", read_only=True)
 
     class Meta:
