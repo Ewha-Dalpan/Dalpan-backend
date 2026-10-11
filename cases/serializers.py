@@ -45,7 +45,7 @@ class CaseSerializer(serializers.ModelSerializer):
 
 class CaseCreateSerializer(serializers.Serializer):
     relation = serializers.ChoiceField(
-        choices=['연애', '친구', '가족', '학교·팀플', '기타'],
+        choices=['연애', '친구', '가족', '직장·학교', '기타'],
     )
     images = serializers.ListField(child=serializers.ImageField(), min_length=1, max_length=6)
 
