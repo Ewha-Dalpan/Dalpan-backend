@@ -43,9 +43,9 @@ def publish_case(user, case_id):
     verdict = latest_verdict(case)
     if not case.is_public:
         case.is_public = True
-        case.public_at = timezone.now()
+        if case.public_at is None:  # 첫 공유 시각만 기록, 재공유해도 최신순 맨 위로 올라가지 않음
+            case.public_at = timezone.now()
         case.save(update_fields=["is_public", "public_at", "updated_at"])
-    return case, verdict
 
 @transaction.atomic
 
@@ -53,5 +53,4 @@ def publish_case(user, case_id):
 def unpublish_case(user, case_id):
     case = get_object_or_404(Case.objects.select_for_update(), pk=case_id, user=user)
     case.is_public = False
-    case.public_at = None
-    case.save(update_fields=["is_public", "public_at", "updated_at"])
+    case.save(update_fields=["is_public", "updated_at"])

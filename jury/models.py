@@ -3,6 +3,7 @@ from django.core.validators import MaxValueValidator
 from django.db import models
 from django.db.models import Q
 
+FAULT_RATIO_CHOICES = list(range(0, 101, 10))  # 0, 10, ..., 100 (저울 10단위)
 
 class JuryVote(models.Model):
     case = models.ForeignKey("cases.Case", on_delete=models.PROTECT, related_name="jury_votes")
@@ -15,8 +16,8 @@ class JuryVote(models.Model):
         db_table = "jury_votes"
         constraints = [
             models.UniqueConstraint(fields=["case", "user"], name="uq_vote_case_user"),
-            models.CheckConstraint(
-                condition=Q(fault_ratio__gte=0) & Q(fault_ratio__lte=100), name="ck_vote_ratio_0_100"
+                        models.CheckConstraint(
+                condition=Q(fault_ratio__in=FAULT_RATIO_CHOICES), name="ck_vote_ratio_step_10"
             ),
         ]
         indexes = [
