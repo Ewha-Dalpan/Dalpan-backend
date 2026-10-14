@@ -231,3 +231,8 @@ if IS_PRODUCTION:
         raise ImproperlyConfigured("Production requires a PostgreSQL DATABASE_URL.")
     if CASE_STORAGE_BACKEND != "s3":
         raise ImproperlyConfigured("Production requires private S3 storage.")
+    
+
+PADDLE_WEBHOOK_SECRET = env("PADDLE_WEBHOOK_SECRET", default="")
+PADDLE_WEBHOOK_TOLERANCE_SECONDS = 300
+PAYMENT_ORDER_EXPIRE_HOURS = 24
