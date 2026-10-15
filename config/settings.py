@@ -15,6 +15,8 @@ import environ
 from datetime import timedelta
 from django.core.exceptions import ImproperlyConfigured
 from corsheaders.defaults import default_headers
+import os
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,12 +27,26 @@ environ.Env.read_env(BASE_DIR / '.env')
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-#SECRET_KEY = 'django-insecure--yl)%2nh3q%r2(gwaq#$%gt@mex%!fzsu^$esmm0286=n$kp!1'
-SECRET_KEY = env('SECRET_KEY')
+SECRET_KEY = os.environ.get(
+    "SECRET_KEY",
+    "local-development-key"
+)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env.bool('DEBUG', default=False)
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])
+DEBUG = os.environ.get(
+    "DEBUG", "True"
+).lower() == "true"
+ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+
+railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+
+if railway_domain:
+    ALLOWED_HOSTS.append(railway_domain)
+
+ALLOWED_HOSTS += [
+    host.strip()
+    for host in os.environ.get("ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
 
 
 # Application definition
@@ -70,10 +86,11 @@ SIMPLE_JWT = {
 }
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -103,9 +120,22 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': env.db('DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}')
-}
+
+if os.environ.get("DATABASE_URL"):
+    DATABASES = {
+        "default": dj_database_url.parse(
+            os.environ["DATABASE_URL"],
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
 
 
 # Password validation
@@ -138,7 +168,11 @@ KAKAO_REST_API_KEY = env("KAKAO_REST_API_KEY")
 KAKAO_CLIENT_SECRET = env("KAKAO_CLIENT_SECRET", default="")
 KAKAO_ALLOWED_REDIRECT_URIS = env.list("KAKAO_ALLOWED_REDIRECT_URIS")
 TERMS_VERSION = "v1.0"  # 약관 문서에 적힌 버전과 맞출 것
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:8000"])
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
 CORS_ALLOW_HEADERS = (*default_headers, "ngrok-skip-browser-warning")
 KAKAO_ADMIN_KEY = env("KAKAO_ADMIN_KEY", default="")
 
@@ -174,6 +208,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
