@@ -2,11 +2,11 @@ import hashlib
 import hmac
 import json
 import time
-import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -15,6 +15,7 @@ from accounts.models import User
 from coins.models import CoinLedger, CoinTxType, CoinWallet
 
 from .models import CoinProduct, OrderStatus, PaddleWebhookEvent, PaymentOrder, PaymentRefund, WebhookResult
+from .services import _is_full_refund
 
 SECRET = "pdl_ntfset_test_secret"
 
@@ -23,9 +24,6 @@ SECRET = "pdl_ntfset_test_secret"
 class WebhookTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="pay_user", nickname="결제테스트")
-        # [수정 1] 테스트 유저의 지갑(CoinWallet)을 미리 생성해 두어야 update 로직이 정상 작동합니다.
-        self.wallet = CoinWallet.objects.create(user=self.user, balance=0)
-        
         self.product = CoinProduct.objects.create(
             name="5톨", coin_amount=5, price_krw=4000, paddle_price_id="pri_test_5")
         self.big = CoinProduct.objects.create(
@@ -58,13 +56,14 @@ class WebhookTests(TestCase):
         }
 
     def adjustment(self, event_id, adj="adj_1", txn="txn_1", status="approved", type_="full",
-                   event_type="adjustment.updated", action="refund"):
+                   event_type="adjustment.updated", action="refund", total="4000"):
+        # total: 환불 금액(세금 포함). 기본값은 결제 금액과 같은 4000 = 전액 환불
         return {
             "event_id": event_id,
             "event_type": event_type,
             "occurred_at": timezone.now().isoformat(),
             "data": {"id": adj, "action": action, "type": type_, "status": status,
-                     "transaction_id": txn, "totals": {"total": "4000"}},
+                     "transaction_id": txn, "totals": {"total": total}},
         }
 
     def balance(self):
@@ -91,7 +90,6 @@ class WebhookTests(TestCase):
         self.assertEqual(self.order.status, OrderStatus.PAID)
         self.assertEqual(self.order.paddle_transaction_id, "txn_1")
         self.assertEqual(self.balance(), 5)
-        
         # 같은 이벤트 재전송 (Paddle 재시도)
         self.assertEqual(self.send(self.completed()).status_code, 200)
         self.assertEqual(self.balance(), 5)
@@ -99,6 +97,7 @@ class WebhookTests(TestCase):
         self.assertEqual(PaddleWebhookEvent.objects.count(), 1)
 
     def test_price_mismatch_is_blocked(self):
+        # 5톨 가격 ID로 결제하면서 50톨 주문번호를 넣는 조작
         order50 = PaymentOrder.objects.create(
             user=self.user, product=self.big, coin_amount=50, price_krw=40000)
         res = self.send(self.completed(price="pri_test_5", order=order50))
@@ -121,8 +120,7 @@ class WebhookTests(TestCase):
 
     def test_unknown_order_recorded_not_retried(self):
         payload = self.completed()
-        # [수정 2] 올제로(000...) UUID 대신 정상 포맷의 랜덤 UUID를 사용해 DB 에러 방지
-        payload["data"]["custom_data"] = {"order_id": str(uuid.uuid4())}
+        payload["data"]["custom_data"] = {"order_id": "00000000-0000-0000-0000-000000000000"}
         self.assertEqual(self.send(payload).status_code, 200)
         self.assertEqual(PaddleWebhookEvent.objects.get().result, WebhookResult.DATA_ERROR)
 
@@ -135,10 +133,19 @@ class WebhookTests(TestCase):
         self.assertEqual(self.balance(), 0)
         refund = PaymentRefund.objects.get()
         self.assertEqual((refund.status, refund.coins_revoked), ("APPROVED", 5))
-        
         # 같은 환불에 대한 다른 이벤트가 또 와도 한 번만 회수
         self.send(self.adjustment("evt_r2", event_type="adjustment.created"))
         self.assertEqual(self.ledger_count(CoinTxType.PAYMENT_REVOKE), 1)
+
+    def test_dashboard_full_refund_with_partial_type_revokes(self):
+        # 실제 샌드박스에서 겪은 버그: 대시보드 전액 환불은 type이 'partial'로 와도 금액이 결제 금액과 같다
+        self.send(self.completed())
+        self.send(self.adjustment("evt_r1", type_="partial", total="4000"))
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.REFUNDED)
+        self.assertEqual(self.balance(), 0)
+        self.assertEqual(PaymentRefund.objects.get().coins_revoked, 5)
+        self.assertEqual(PaddleWebhookEvent.objects.get(event_id="evt_r1").result, WebhookResult.PROCESSED)
 
     def test_refund_after_spending_revokes_only_remaining(self):
         self.send(self.completed())
@@ -149,8 +156,9 @@ class WebhookTests(TestCase):
         self.assertEqual(PaddleWebhookEvent.objects.get(event_id="evt_r1").result, WebhookResult.DATA_ERROR)
 
     def test_partial_refund_is_left_for_admin(self):
+        # 진짜 부분 환불: 결제 금액(4000)보다 적은 금액
         self.send(self.completed())
-        self.send(self.adjustment("evt_r1", type_="partial"))
+        self.send(self.adjustment("evt_r1", type_="partial", total="2000"))
         self.assertEqual(self.balance(), 5)
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, OrderStatus.PAID)
@@ -171,7 +179,9 @@ class WebhookTests(TestCase):
         self.assertEqual(self.send(adj).status_code, 200)  # 재전송되면 정상 처리
         self.assertEqual(self.balance(), 0)
 
+    # ---------- 차지백 ----------
     def test_chargeback_after_refund_not_revoked_twice(self):
+        # 5톨 결제 → 전액 환불(5 회수) → 다른 결제로 3톨 보유 → 같은 결제에 차지백
         self.send(self.completed())
         self.send(self.adjustment("evt_r1"))
         CoinWallet.objects.filter(user=self.user).update(balance=3)
@@ -195,7 +205,7 @@ class ApiTests(TestCase):
         self.product = CoinProduct.objects.create(
             name="5톨", coin_amount=5, price_krw=4000, paddle_price_id="pri_api_5")
         self.hidden = CoinProduct.objects.create(
-            name="숨김", coin_amount=1, price_krw=800, paddle_price_id="pri_api_1", is_active=False)
+            name="숨김", coin_amount=1, price_krw=1000, paddle_price_id="pri_api_1", is_active=False)
         self.api = APIClient()
 
     def test_products_are_public_and_hide_inactive(self):
@@ -237,3 +247,33 @@ class ApiTests(TestCase):
         call_command("expire_pending_orders")
         order.refresh_from_db()
         self.assertEqual(order.status, OrderStatus.EXPIRED)
+
+
+class IsFullRefundTests(SimpleTestCase):
+    """대시보드 환불은 품목 단위라 type이 'partial'로 와도 전액일 수 있다.
+    전액 여부는 결제 금액(세금 포함) 비교로 판단해야 한다."""
+
+    def setUp(self):
+        # 실제 주문 대신 price_krw만 가진 가짜 객체 (DB 불필요)
+        self.order = SimpleNamespace(price_krw=4000)
+
+    def test_type_full이면_전액(self):
+        data = {"type": "full", "totals": {"total": "4000"}}
+        self.assertTrue(_is_full_refund(data, self.order))
+
+    def test_type_partial이어도_금액이_같으면_전액(self):
+        data = {"type": "partial", "totals": {"total": "4000"}}
+        self.assertTrue(_is_full_refund(data, self.order))
+
+    def test_금액이_적으면_부분(self):
+        data = {"type": "partial", "totals": {"total": "2000"}}
+        self.assertFalse(_is_full_refund(data, self.order))
+
+    def test_세금제외_금액은_전액이_아님(self):
+        # subtotal(3636)을 잘못 꺼내 비교하면 안 된다는 기준
+        data = {"type": "partial", "totals": {"total": "3636"}}
+        self.assertFalse(_is_full_refund(data, self.order))
+
+    def test_금액이_없거나_이상하면_부분(self):
+        self.assertFalse(_is_full_refund({"type": "partial"}, self.order))
+        self.assertFalse(_is_full_refund({"type": "partial", "totals": {"total": "abc"}}, self.order))

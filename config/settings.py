@@ -14,6 +14,7 @@ from pathlib import Path
 import environ
 from datetime import timedelta
 from django.core.exceptions import ImproperlyConfigured
+from corsheaders.defaults import default_headers
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -138,6 +139,7 @@ KAKAO_CLIENT_SECRET = env("KAKAO_CLIENT_SECRET", default="")
 KAKAO_ALLOWED_REDIRECT_URIS = env.list("KAKAO_ALLOWED_REDIRECT_URIS")
 TERMS_VERSION = "v1.0"  # 약관 문서에 적힌 버전과 맞출 것
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:8000"])
+CORS_ALLOW_HEADERS = (*default_headers, "ngrok-skip-browser-warning")
 KAKAO_ADMIN_KEY = env("KAKAO_ADMIN_KEY", default="")
 
 VERDICT_TIMEOUT_SECONDS = env.int("VERDICT_TIMEOUT_SECONDS", default=600)

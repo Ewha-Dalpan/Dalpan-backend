@@ -217,6 +217,13 @@ def _revoke_coins(order, adjustment_id):
     )
     return -ledger.amount
 
+def _is_full_refund(data, order):
+    """환불 금액이 결제 금액과 같으면 전액 환불로 본다.
+    대시보드 환불은 품목 단위라 type이 'partial'로 와도 실제로는 전액일 수 있다."""
+    if data.get("type") == "full":
+        return True
+    total = str((data.get("totals") or {}).get("total", ""))
+    return total.isascii() and total.isdigit() and int(total) == order.price_krw
 
 def _handle_adjustment(data, event_time):
     action = data.get("action")
@@ -262,7 +269,7 @@ def _handle_adjustment(data, event_time):
             .exclude(paddle_adjustment_id=adjustment_id)
             .exists()
         )
-        if data.get("type") != "full":
+        if not _is_full_refund(data, order):
             result, note = WebhookResult.DATA_ERROR, "부분 환불 - 코인 회수는 관리자가 직접 처리"
         elif already_revoked:
             # 환불 뒤 같은 결제에 차지백이 또 오는 경우: 코인을 두 번 회수하지 않는다
