@@ -72,7 +72,7 @@ class PaymentRefund(models.Model):
 class WebhookResult(models.TextChoices):
     PROCESSED = "PROCESSED", "처리 완료"
     IGNORED = "IGNORED", "무시"
-    DATA_ERROR = "DATA_ERROR", "데이터 오류"
+    DATA_ERROR = "DATA_ERROR", "확인 필요"
 
 
 class PaddleWebhookEvent(models.Model):
