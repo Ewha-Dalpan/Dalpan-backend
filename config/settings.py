@@ -247,6 +247,8 @@ if CASE_STORAGE_BACKEND == "s3":
             "OPTIONS": {
                 "bucket_name": env("AWS_STORAGE_BUCKET_NAME"),
                 "region_name": env("AWS_S3_REGION_NAME", default="ap-northeast-2"),
+                "endpoint_url": env("AWS_S3_ENDPOINT_URL", default=None),
+                "signature_version": "s3v4",
                 "default_acl": None, "querystring_auth": True,
                 "querystring_expire": 300, "file_overwrite": False, "custom_domain": None,
             },
@@ -267,7 +269,7 @@ if IS_PRODUCTION:
     if DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
         raise ImproperlyConfigured("Production requires a PostgreSQL DATABASE_URL.")
     if CASE_STORAGE_BACKEND != "s3":
-        raise ImproperlyConfigured("Production requires private S3 storage.")
+        raise ImproperlyConfigured("Production requires private S3-compatible storage.")
     
 
 PADDLE_WEBHOOK_SECRET = env("PADDLE_WEBHOOK_SECRET", default="")
