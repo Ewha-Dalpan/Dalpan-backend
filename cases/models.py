@@ -43,6 +43,7 @@ class Case(models.Model):
 class CaseImage(models.Model):
     case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name='images')
     image_key = models.ImageField(upload_to=case_image_path, max_length=255)
+    public_image = models.ImageField(upload_to=case_image_path, max_length=255, blank=True)
     sort_order = models.PositiveSmallIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -99,3 +100,11 @@ class CaseIssue(models.Model):
 
     class Meta:
         db_table = 'case_issues'
+
+
+class PendingImageDeletion(models.Model):
+    file_name = models.CharField(max_length=255, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "pending_image_deletions"

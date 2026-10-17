@@ -44,6 +44,7 @@ class Command(BaseCommand):
                     count += 1
                     if options["apply"]:
                         try:
+                            image.public_image.delete(save=False)
                             image.image_key.delete(save=False)
                         except Exception:
                             failures += 1

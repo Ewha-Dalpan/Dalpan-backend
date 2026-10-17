@@ -23,6 +23,7 @@ class Command(BaseCommand):
             if not options["apply"]:
                 continue
             try:
+                image.public_image.delete(save=False)
                 image.image_key.delete(save=False)  # 저장소(로컬/S3) 파일 먼저 삭제
             except Exception:
                 failures += 1

@@ -86,6 +86,9 @@ class JudgmentView(APIView):
 class CaseImageDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def image_field(self, image):
+        return image.image_key
+
     def get(self, request, case_id, image_id):
         from django.http import FileResponse, Http404
         from django.shortcuts import get_object_or_404
@@ -94,7 +97,7 @@ class CaseImageDetailView(APIView):
         image = get_object_or_404(CaseImage, case=case, pk=image_id)
         from PIL import Image, UnidentifiedImageError
         try:
-            image_file = image.image_key.open("rb")
+            image_file = self.image_field(image).open("rb")
             try:
                 with Image.open(image_file) as decoded:
                     content_type = Image.MIME.get(decoded.format, "application/octet-stream")
@@ -108,3 +111,61 @@ class CaseImageDetailView(APIView):
         response["Cache-Control"] = "private, no-store"
         response["X-Content-Type-Options"] = "nosniff"
         return response
+
+
+class CasePublicImageView(CaseImageDetailView):
+    """Owner preview/upload/reset. Original is retained for analysis."""
+    def image_field(self, image):
+        return image.public_image or image.image_key
+
+    def put(self, request, case_id, image_id):
+        from rest_framework import serializers
+        from .uploads import validate_case_images
+        class UploadSerializer(serializers.Serializer):
+            image = serializers.ImageField()
+        payload = UploadSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data["image"]
+        validate_case_images([data])
+        image = self._update(request, case_id, image_id, data)
+        from .serializers import CaseImageSerializer
+        return Response(CaseImageSerializer(image, context={"request": request}).data)
+
+    def delete(self, request, case_id, image_id):
+        self._update(request, case_id, image_id, None)
+        return Response(status=204)
+
+    def _update(self, request, case_id, image_id, upload):
+        from django.db import transaction
+        from django.shortcuts import get_object_or_404
+        from .models import CaseImage
+        new_name = None
+        storage = None
+        try:
+            with transaction.atomic():
+                case = owned_case(request.user, case_id, lock=True)
+                image = get_object_or_404(CaseImage.objects.select_for_update(), case=case, pk=image_id)
+                old_name = image.public_image.name
+                storage = image.public_image.storage
+                from django.conf import settings
+                from rest_framework.exceptions import ValidationError
+                from .image_cleanup import schedule_image_deletion
+                total = upload.size if upload is not None else image.image_key.size
+                for other in case.images.exclude(pk=image.pk):
+                    total += (other.public_image or other.image_key).size
+                if total > settings.CASE_IMAGES_MAX_TOTAL_BYTES:
+                    raise ValidationError({"image": "Public images exceed the total size limit."})
+                if upload is None:
+                    image.public_image = ""
+                else:
+                    image.public_image.save(upload.name, upload, save=False)
+                    new_name = image.public_image.name
+                image.save(update_fields=["public_image"])
+                if old_name:
+                    schedule_image_deletion(old_name)
+                return image
+        except Exception:
+            if new_name:
+                from .image_cleanup import schedule_image_deletion
+                schedule_image_deletion(new_name)
+            raise
