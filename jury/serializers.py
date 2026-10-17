@@ -51,3 +51,18 @@ class ReportCreateSerializer(serializers.Serializer):
         if attrs["reason"] == ReportReason.OTHER and not attrs["detail"]:
             raise serializers.ValidationError({"detail": "기타 사유는 내용을 입력해야 합니다."})
         return attrs
+
+class JuryActivitySerializer(serializers.Serializer):
+    case_id = serializers.IntegerField(source="pk")
+    title = serializers.CharField(source="public_title")
+    relation = serializers.CharField()
+    has_voted = serializers.BooleanField()
+    my_fault_ratio = serializers.IntegerField(allow_null=True)
+    my_comment_count = serializers.IntegerField()
+    last_activity_at = serializers.DateTimeField()
+    thumbnail = serializers.SerializerMethodField()
+
+    def get_thumbnail(self, obj):
+        if obj.thumbnail_id is None:
+            return None
+        return image_url(self.context["request"], obj.pk, obj.thumbnail_id)

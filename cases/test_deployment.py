@@ -184,7 +184,7 @@ class ProductionSettingsTests(SimpleTestCase):
         from django.conf import settings
         values = {
             "DEPLOYMENT_ENV": "production", "DEBUG": "False",
-            "ALLOWED_HOSTS": "api.example.test",
+            "ALLOWED_HOSTS": "api.example.test", "RAILWAY_PUBLIC_DOMAIN": "",
             "SECRET_KEY": "test-only-secret", "IDENTITY_HASH_KEY": "test-only-identity",
             "DATABASE_URL": "postgres://test:test@localhost/test",
             "CASE_STORAGE_BACKEND": "s3", "AWS_STORAGE_BUCKET_NAME": "private-test-bucket",
@@ -225,3 +225,13 @@ class ProductionSettingsTests(SimpleTestCase):
         ]:
             with self.subTest(values=values), self.assertRaises(ImproperlyConfigured):
                 self.load_settings(**values)
+
+
+    def test_railway_domain_counts_as_production_host(self):
+        config = self.load_settings(ALLOWED_HOSTS="", RAILWAY_PUBLIC_DOMAIN="example.up.railway.app")
+        self.assertIn("example.up.railway.app", config["ALLOWED_HOSTS"])
+
+    def test_localhost_only_is_not_a_production_host(self):
+        from django.core.exceptions import ImproperlyConfigured
+        with self.assertRaises(ImproperlyConfigured):
+            self.load_settings(ALLOWED_HOSTS="localhost,127.0.0.1")

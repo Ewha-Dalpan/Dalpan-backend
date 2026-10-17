@@ -18,7 +18,9 @@ from .services import (
     my_vote, report_case, report_comment, submit_vote, viewable_case, public_images, 
 )
 
-RELATIONS = ["연애", "친구", "가족", "직장·학교", "기타"]
+from cases.relations import RELATION_CHOICES
+
+RELATIONS = RELATION_CHOICES
 
 
 def _latest_verdict():
@@ -122,7 +124,7 @@ class JuryCommentDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
     
 class JuryCaseImageView(APIView):
-    """공개 사건의 원본 이미지. <img src>로 바로 쓰도록 로그인 불필요, 공유 취소되면 404"""
+    """공개 사건의 공개용 이미지(없으면 원본). <img src>로 바로 쓰도록 로그인 불필요, 공유 취소되면 404"""
     permission_classes = [AllowAny]
     authentication_classes = []
 
@@ -131,7 +133,7 @@ class JuryCaseImageView(APIView):
         case = get_object_or_404(jury_cases(), pk=case_id)
         image = get_object_or_404(public_images(), case=case, pk=image_id)
         try:
-            image_file = image.image_key.open("rb")
+            image_file = (image.public_image or image.image_key).open("rb")
             try:
                 with Image.open(image_file) as decoded:
                     content_type = Image.MIME.get(decoded.format, "application/octet-stream")
@@ -164,3 +166,40 @@ class JuryCommentReportView(APIView):
         data.is_valid(raise_exception=True)
         report_comment(user=request.user, case_id=case_id, comment_id=comment_id, **data.validated_data)
         return Response(status=status.HTTP_201_CREATED)
+
+class MyJuryActivityView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    pagination_class = JuryPagination
+
+    def get_serializer_class(self):
+        from .serializers import JuryActivitySerializer
+        return JuryActivitySerializer
+
+    def get_queryset(self):
+        from django.db.models import DateTimeField, Exists, IntegerField, Value
+        from django.db.models.functions import Coalesce, Greatest
+        from rest_framework.exceptions import ValidationError
+        from .models import JuryVote
+        kind = self.request.query_params.get("type", "all")
+        if kind not in {"all", "votes", "comments"}:
+            raise ValidationError({"type": "Choose all, votes or comments."})
+        votes = JuryVote.objects.filter(case=OuterRef("pk"), user=self.request.user)
+        comments = JuryComment.objects.filter(case=OuterRef("pk"), user=self.request.user, status=CommentStatus.VISIBLE)
+        vote_time = Subquery(votes.values("created_at")[:1], output_field=DateTimeField())
+        comment_time = Subquery(comments.order_by("-created_at", "-pk").values("created_at")[:1], output_field=DateTimeField())
+        qs = jury_cases().annotate(
+            public_title=Subquery(_latest_verdict().values("public_title")[:1]),
+            relation=Subquery(_latest_verdict().values("relation")[:1]),
+            has_voted=Exists(votes), has_commented=Exists(comments),
+            my_fault_ratio=Subquery(votes.values("fault_ratio")[:1]),
+            my_comment_count=Coalesce(Subquery(comments.order_by().values("case").annotate(n=Count("pk")).values("n")[:1]), Value(0), output_field=IntegerField()),
+            last_activity_at=Greatest(Coalesce(vote_time, comment_time), Coalesce(comment_time, vote_time)),
+            thumbnail_id=Subquery(public_images().filter(case=OuterRef("pk")).order_by("sort_order", "id").values("id")[:1]),
+        )
+        if kind == "votes":
+            qs = qs.filter(has_voted=True)
+        elif kind == "comments":
+            qs = qs.filter(has_commented=True)
+        else:
+            qs = qs.filter(Q(has_voted=True) | Q(has_commented=True))
+        return qs.order_by("-last_activity_at", "-pk")

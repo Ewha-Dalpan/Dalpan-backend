@@ -2,10 +2,22 @@ from rest_framework import serializers
 from django.urls import reverse
 
 from .models import Case, CaseImage, CaseSituation
+from .relations import RELATION_CHOICES
 
 
 class CaseImageSerializer(serializers.ModelSerializer):
     image_key = serializers.SerializerMethodField()
+    public_image_url = serializers.SerializerMethodField()
+    has_public_image = serializers.SerializerMethodField()
+
+    def get_has_public_image(self, obj):
+        return bool(obj.public_image)
+
+    def get_public_image_url(self, obj):
+        path = reverse("case-public-image", kwargs={"case_id": obj.case_id, "image_id": obj.pk})
+        request = self.context.get("request")
+        return request.build_absolute_uri(path) if request else path
+
 
     def get_image_key(self, obj):
         path = reverse("case-image-detail", kwargs={"case_id": obj.case_id, "image_id": obj.pk})
@@ -14,7 +26,7 @@ class CaseImageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CaseImage
-        fields = ['id', 'image_key', 'sort_order']
+        fields = ['id', 'image_key', 'sort_order', 'public_image_url', 'has_public_image']
 
 
 class SituationSerializer(serializers.ModelSerializer):
@@ -45,7 +57,7 @@ class CaseSerializer(serializers.ModelSerializer):
 
 class CaseCreateSerializer(serializers.Serializer):
     relation = serializers.ChoiceField(
-        choices=['연애', '친구', '가족', '직장·학교', '기타'],
+        choices=RELATION_CHOICES,
     )
     images = serializers.ListField(child=serializers.ImageField(), min_length=1, max_length=6)
 

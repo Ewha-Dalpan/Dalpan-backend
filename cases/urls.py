@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("<int:case_id>/images/<int:image_id>/public-image/", views.CasePublicImageView.as_view(), name="case-public-image"),
     path('<int:case_id>/images/<int:image_id>/', views.CaseImageDetailView.as_view(), name='case-image-detail'),
     path('', views.CaseListCreateView.as_view(), name='case-list'),
     path('<int:case_id>/', views.CaseDetailView.as_view(), name='case-detail'),

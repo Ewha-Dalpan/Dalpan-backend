@@ -35,7 +35,7 @@ def jury_cases():
     )
 
 def public_images():
-    """배심원석에 보여줄 원본 이미지: 작성자가 탈퇴하면 즉시 비공개(파일은 30일 뒤 삭제)"""
+    """배심원석에 보여줄 이미지: 작성자가 탈퇴하면 즉시 비공개(파일은 30일 뒤 삭제)"""
     return CaseImage.objects.filter(case__user__withdrawn_at__isnull=True)
 
 def jury_result(case):

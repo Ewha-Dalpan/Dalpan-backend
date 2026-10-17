@@ -264,7 +264,8 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 if env.bool("TRUST_PROXY_HTTPS_HEADER", default=False):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 if IS_PRODUCTION:
-    if DEBUG or not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
+    production_hosts = [host for host in ALLOWED_HOSTS if host not in {"localhost", "127.0.0.1", "[::1]", "::1"}]
+    if DEBUG or not production_hosts or "*" in ALLOWED_HOSTS:
         raise ImproperlyConfigured("Production requires DEBUG=False and explicit ALLOWED_HOSTS.")
     if DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
         raise ImproperlyConfigured("Production requires a PostgreSQL DATABASE_URL.")

@@ -219,6 +219,8 @@ class VerdictPipelineTests(TestCase):
         self.assertEqual(self.case.public_at, first_public_at)
         self.assertEqual((self.case.jury_count, self.case.fault_ratio_sum), (0, 0))
 
+        self.assertEqual(self.client.delete(publish_path).status_code, 204)
+        self.case.refresh_from_db()
         self.assertFalse(self.case.is_public)
         self.assertEqual(self.case.public_at, first_public_at)  # 공유 취소해도 첫 공유 시각 유지
 

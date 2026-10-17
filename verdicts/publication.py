@@ -46,6 +46,7 @@ def publish_case(user, case_id):
         if case.public_at is None:  # 첫 공유 시각만 기록, 재공유해도 최신순 맨 위로 올라가지 않음
             case.public_at = timezone.now()
         case.save(update_fields=["is_public", "public_at", "updated_at"])
+    return case, verdict
 
 @transaction.atomic
 
