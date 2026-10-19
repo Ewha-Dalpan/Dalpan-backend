@@ -276,3 +276,21 @@ if IS_PRODUCTION:
 PADDLE_WEBHOOK_SECRET = env("PADDLE_WEBHOOK_SECRET", default="")
 PADDLE_WEBHOOK_TOLERANCE_SECONDS = 300
 PAYMENT_ORDER_EXPIRE_HOURS = 24
+
+# Send server exceptions to stderr so Railway captures their tracebacks.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
