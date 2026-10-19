@@ -36,7 +36,7 @@ gunicorn config.wsgi:application --bind 0.0.0.0:8000
 python manage.py run_verdict_worker
 ~~~
 
-현재 워커는 하나만 운영한다. 다중 워커 작업 선점은 별도 검증이 필요하다.
+See the worker rollout and PostgreSQL validation instructions below.
 systemd 또는 ECS 서비스로 웹/워커 각각 종료 시 재시작하고 로그를 수집한다.
 워커가 없으면 PENDING 요청이 쌓이며 시간 초과 시 환불된다.
 순차 처리라 대기열이 길어지면 접수 시각부터 계산하는 제한 시간도 확인한다.
@@ -87,3 +87,30 @@ img src만으로는 JWT 헤더를 보낼 수 없다. Blob URL은 사용 후 해�
 로그 알림과 워커/대기열 모니터링을 구성한다.
 
 저장소 설정 참고: https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html
+
+## Worker performance and rollout
+
+Apply `python manage.py migrate --noinput` before deploying the updated web and
+worker code (migration verdicts.0008 adds the shared search admission clock).
+Keep one worker initially, measure `AI timing` / `AI queue` logs, then validate
+multiple workers on a staging PostgreSQL database before increasing production
+replicas to two. SQLite does not provide the required row locks.
+
+Workers claim requests using the existing case-then-request lock order. On
+PostgreSQL they skip locked cases and check up to 20 pending candidates.
+AI calls happen after the claim transaction commits. Existing timeout, cancellation,
+coin charge/refund, and final-result checks remain in place.
+
+Searches run with at most LINER_SEARCH_CONCURRENCY HTTP calls per worker (default 2).
+All workers sharing this database use the same search admission clock: scholar
+starts are spaced by at least 0.6 seconds, web starts by 0.2 seconds. 429 responses
+extend this shared clock and are retried at most twice within the request deadline.
+Other services using the same Liner account but a different database do not share
+this limiter; allocate account capacity accordingly. Increasing replicas increases
+in-flight calls, so confirm account concurrency limits before further scaling.
+
+Prompts, model, token limits, candidate counts, scholar-first fallback policy,
+source relevance review, API fields and progress values are unchanged. Duplicate
+queries reuse results only within a search phase; each factor is reviewed separately.
+Image reads/conversion use two threads with the original 4096px/quality 90 settings.
+Timing logs contain stage, duration, request ID and queue delay, not case content.

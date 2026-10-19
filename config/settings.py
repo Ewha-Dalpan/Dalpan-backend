@@ -294,3 +294,15 @@ LOGGING = {
         },
     },
 }
+
+# Search concurrency does not change AI prompts, result counts, or output schemas.
+LINER_SEARCH_CONCURRENCY = env.int("LINER_SEARCH_CONCURRENCY", default=2)
+LINER_SCHOLAR_INTERVAL_SECONDS = env.float("LINER_SCHOLAR_INTERVAL_SECONDS", default=0.6)
+LINER_WEB_INTERVAL_SECONDS = env.float("LINER_WEB_INTERVAL_SECONDS", default=0.2)
+if not 1 <= LINER_SEARCH_CONCURRENCY <= 4:
+    raise ImproperlyConfigured("LINER_SEARCH_CONCURRENCY must be between 1 and 4.")
+if LINER_SCHOLAR_INTERVAL_SECONDS < 0.6 or LINER_WEB_INTERVAL_SECONDS < 0.1:
+    raise ImproperlyConfigured("Search intervals are below the supported minimum.")
+LOGGING["loggers"]["verdicts"] = {
+    "handlers": ["console"], "level": "INFO", "propagate": False,
+}
