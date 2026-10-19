@@ -132,3 +132,12 @@ class VerdictShare(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     class Meta:
         db_table = "verdict_shares"
+
+
+class SearchThrottle(models.Model):
+    """Shared admission clock for search calls made by this deployment."""
+    kind = models.CharField(max_length=10, primary_key=True)
+    next_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "verdict_search_throttles"

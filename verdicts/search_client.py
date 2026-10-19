@@ -1,11 +1,18 @@
 """Liner 검색 결과를 정규화한다. 원격 페이지를 직접 다운로드하지 않는다."""
 import ipaddress
+import math
 from urllib.parse import urlsplit
 import requests
 from django.conf import settings
 
 class SearchUnavailable(Exception):
     pass
+
+class SearchRateLimited(SearchUnavailable):
+    def __init__(self, retry_after=1.0):
+        super().__init__("Search rate limited")
+        self.retry_after = retry_after
+
 
 def valid_source_url(value):
     if not isinstance(value, str) or len(value) > 2048:
@@ -39,6 +46,14 @@ def search_sources(query, kind, *, timeout=None):
             headers={"x-api-key": settings.LINER_API_KEY, "Content-Type": "application/json"},
             json=payload, timeout=(5, timeout or settings.LINER_SEARCH_TIMEOUT_SECONDS),
         )
+        if response.status_code == 429:
+            try:
+                delay = float(response.headers.get("Retry-After", 1))
+            except (TypeError, ValueError):
+                delay = 1.0
+            if not math.isfinite(delay):
+                delay = 1.0
+            raise SearchRateLimited(max(0.6, delay))
         if not response.ok:
             raise SearchUnavailable(f"Search HTTP {response.status_code}")
         results = response.json().get("results")

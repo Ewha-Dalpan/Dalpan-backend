@@ -18,6 +18,7 @@ from .ai_client import (
     judge_case,
 )
 from .models import VerdictRequest
+from .performance import timed
 from .services import (
     _locked_request,
     complete_analysis,
@@ -70,9 +71,18 @@ def _check_pending_request(request_id, stage):
 
 
 
-def _claim_request(request_id):
+def _claim_request(request_id, *, skip_locked=False):
     with transaction.atomic():
-        req = _locked_request(request_id)
+        if skip_locked:
+            # Match the global case -> request lock order. Skip another worker's
+            # short claim/finish transaction instead of blocking the queue.
+            case_id = VerdictRequest.objects.values_list("case_id", flat=True).get(pk=request_id)
+            case = Case.objects.select_for_update(skip_locked=True).filter(pk=case_id).first()
+            if case is None:
+                return None
+            req = VerdictRequest.objects.select_for_update().get(pk=request_id)
+        else:
+            req = _locked_request(request_id)
 
         if req.status != "PENDING":
             return None
@@ -122,14 +132,21 @@ def _check_progress(request_id, stage):
     VerdictRequest.objects.filter(pk=request_id, status="RUNNING", stage="JUDGMENT").update(progress_step=stage)
     return min(settings.LINER_HTTP_TIMEOUT_SECONDS, max(1, remaining - 5))
 
-def process_request(request_id):
+def process_request(request_id, *, skip_locked=False):
     initial_req = VerdictRequest.objects.get(pk=request_id)
     expire_if_stale(initial_req)
 
-    req = _claim_request(request_id)
+    req = _claim_request(request_id, skip_locked=skip_locked)
     if req is None:
-        return
+        return False
+    logger.info("AI queue: request_id=%s stage=%s wait_ms=%.0f", req.pk, req.stage,
+                (timezone.now() - (req.started_at or req.created_at)).total_seconds() * 1000)
+    with timed(f"request_{req.stage}", request_id=req.pk):
+        _process_claimed(req)
+    return True
 
+
+def _process_claimed(req):
     try:
         case = Case.objects.get(pk=req.case_id)
         if case.deleted_at is not None:

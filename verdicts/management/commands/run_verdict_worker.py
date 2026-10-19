@@ -5,7 +5,7 @@ import time
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 
 from verdicts.models import VerdictRequest
 from verdicts.services import fail_stale_requests
@@ -24,7 +24,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                "Verdict 워커 시작. 하나의 워커 프로세스로 순차 처리합니다."
+                "Verdict worker started. PostgreSQL supports multiple worker processes."
             )
         )
 
@@ -36,20 +36,27 @@ class Command(BaseCommand):
                     # 워커가 중단되었던 요청도 제한 시간이 지나면 실패·환불한다.
                     fail_stale_requests()
 
-                    request_id = (
+                    request_ids = list(
                         VerdictRequest.objects.filter(status="PENDING")
                         .order_by("created_at", "id")
-                        .values_list("id", flat=True)
-                        .first()
+                        .values_list("id", flat=True)[:20]
                     )
 
-                    if request_id is None:
+                    if not request_ids:
                         time.sleep(2)
                         continue
 
-                    self.stdout.write(f"요청 {request_id} 처리 시작")
-                    process_request(request_id)
-                    self.stdout.write(f"요청 {request_id} 처리 종료")
+                    for request_id in request_ids:
+                        processed = process_request(
+                            request_id,
+                            skip_locked=connection.features.has_select_for_update_skip_locked,
+                        )
+                        if processed:
+                            self.stdout.write(f"Request {request_id} processed")
+                            break
+                    else:
+                        # All candidates were claimed by other workers.
+                        time.sleep(0.2)
 
                 except Exception as exc:
                     logger.error(

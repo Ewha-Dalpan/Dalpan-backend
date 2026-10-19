@@ -3,6 +3,7 @@
 import base64
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from io import BytesIO
 
 import requests
@@ -11,7 +12,8 @@ from PIL import Image, ImageOps
 from rest_framework import serializers
 
 from .prompts import ANALYSIS_PROMPT, JUDGMENT_PROMPT, FACTOR_PLAN_PROMPT, SOURCE_SELECTION_PROMPT
-from .search_client import SearchUnavailable, search_sources
+from .search_client import SearchRateLimited, SearchUnavailable, search_sources
+from .performance import admit_search, defer_search, timed
 
 logger = logging.getLogger(__name__)
 
@@ -221,15 +223,16 @@ def _call_liner(*, prompt, content, schema, schema_name, timeout=None):
         raise AIClientError("AI 요청 크기가 너무 큽니다.")
 
     try:
-        response = requests.post(
-            LINER_ENDPOINT,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            data=body,
-            timeout=(5, timeout or settings.LINER_HTTP_TIMEOUT_SECONDS),
-        )
+        with timed(schema_name):
+            response = requests.post(
+                LINER_ENDPOINT,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                data=body,
+                timeout=(5, timeout or settings.LINER_HTTP_TIMEOUT_SECONDS),
+            )
     except requests.Timeout:
         raise AIClientError("AI 응답 시간이 초과되었습니다.") from None
     except requests.RequestException:
@@ -279,45 +282,30 @@ def _validate_result(serializer_class, data):
     return dict(serializer.validated_data)
 
 
+def _prepare_image(case_image):
+    with case_image.image_key.open("rb") as image_file:
+        with Image.open(image_file) as original:
+            normalized = ImageOps.exif_transpose(original)
+            normalized.thumbnail((4096, 4096))
+            output = BytesIO()
+            normalized.convert("RGB").save(output, format="JPEG", quality=90)
+            return output.getvalue()
+
+
 def _image_parts(images):
     parts = []
     total_bytes = 0
-
-    for image_order, case_image in enumerate(images):
-        # 저장소 API를 사용하므로 로컬 파일과 원격 저장소에 모두 대응한다.
-        with case_image.image_key.open("rb") as image_file:
-            with Image.open(image_file) as original:
-                normalized = ImageOps.exif_transpose(original)
-
-                # 지나치게 큰 사진만 축소하고 비율은 유지한다.
-                normalized.thumbnail((4096, 4096))
-
-                output = BytesIO()
-                normalized.convert("RGB").save(
-                    output,
-                    format="JPEG",
-                    quality=90,
-                )
-                image_bytes = output.getvalue()
-
-        total_bytes += len(image_bytes)
-        if total_bytes > MAX_IMAGE_BYTES:
-            raise AIClientError("첨부 사진의 전체 크기가 너무 큽니다.")
-
-        encoded = base64.b64encode(image_bytes).decode("ascii")
-        parts.extend([
-            {
-                "type": "text",
-                "text": f"다음 사진의 image_order는 {image_order}입니다.",
-            },
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{encoded}",
-                },
-            },
-        ])
-
+    # Keep resolution, JPEG quality, image order, and size limits unchanged.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for image_order, image_bytes in enumerate(pool.map(_prepare_image, images)):
+            total_bytes += len(image_bytes)
+            if total_bytes > MAX_IMAGE_BYTES:
+                raise AIClientError("첨부 사진의 전체 크기가 너무 큽니다.")
+            encoded = base64.b64encode(image_bytes).decode("ascii")
+            parts.extend([
+                {"type": "text", "text": f"다음 사진의 image_order는 {image_order}입니다."},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}},
+            ])
     return parts
 
 
@@ -336,7 +324,8 @@ def analyze_case(*, relation, images):
             ensure_ascii=False,
         ),
     }]
-    content.extend(_image_parts(images))
+    with timed("image_preparation"):
+        content.extend(_image_parts(images))
 
     result = _call_liner(
         prompt=ANALYSIS_PROMPT,
@@ -405,6 +394,56 @@ def _review_sources(factors, candidates, check_progress):
             chosen[key] = {**candidate, "reference_summary": selection["reference_summary"]}
     return chosen
 
+def _search_factors(factors, kind, check_progress):
+    """Bounded HTTP concurrency; all DB/progress work stays on the caller thread.
+
+    Results and source IDs follow plan order, never completion order. Identical
+    queries share an HTTP result but are still reviewed separately per factor.
+    """
+    if not factors:
+        return [], set()
+    query_field = "scholar_query" if kind == "SCHOLAR" else "web_query"
+    step = "SEARCHING_SCHOLAR" if kind == "SCHOLAR" else "SEARCHING_WEB"
+    queries = list(dict.fromkeys(factor[query_field] for factor in factors))
+    results = {}
+    pending = {}
+    jobs = [(query, 0) for query in queries]
+    with timed(step), ThreadPoolExecutor(max_workers=settings.LINER_SEARCH_CONCURRENCY) as pool:
+        while jobs or pending:
+            while jobs and len(pending) < settings.LINER_SEARCH_CONCURRENCY:
+                query, attempt = jobs.pop(0)
+                timeout = check_progress(step)
+                admit_search(kind, timeout)
+                timeout = min(check_progress(step), settings.LINER_SEARCH_TIMEOUT_SECONDS)
+                future = pool.submit(search_sources, query, kind, timeout=timeout)
+                pending[future] = (query, attempt)
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                query, attempt = pending.pop(future)
+                try:
+                    results[query] = future.result()
+                except SearchRateLimited as exc:
+                    # Include every retry in the deployment-wide admission clock.
+                    if attempt < 2:
+                        defer_search(kind, max(exc.retry_after, 2 ** attempt))
+                        jobs.append((query, attempt + 1))
+                    else:
+                        logger.warning("Search retry limit reached: kind=%s", kind)
+                except SearchUnavailable:
+                    logger.warning("Search unavailable: kind=%s", kind)
+    candidates, completed = [], set()
+    prefix = "scholar" if kind == "SCHOLAR" else "web"
+    for factor in factors:
+        query = factor[query_field]
+        if query not in results:
+            continue
+        completed.add(factor["key"])
+        for result in results[query]:
+            candidates.append({**result, "id": f"{prefix}_{len(candidates)}",
+                               "factor_key": factor["key"]})
+    return candidates, completed
+
+
 def judge_case(*, situation, conflict_core, analysis, check_progress=None):
     # 2차에는 이미지나 추가 설명을 전달하지 않는다.
     if check_progress is None:
@@ -419,40 +458,14 @@ def judge_case(*, situation, conflict_core, analysis, check_progress=None):
     for factor in plan:
         if any(index >= message_count for index in factor["evidence"]):
             raise AIClientError("판단 요소의 대화 근거 번호가 올바르지 않습니다.")
-    candidates = []
-    scholar_completed = set()
-    for factor in plan:
-        timeout = check_progress("SEARCHING_SCHOLAR")
-        try:
-            results = search_sources(
-                factor["scholar_query"], "SCHOLAR",
-                timeout=min(timeout, settings.LINER_SEARCH_TIMEOUT_SECONDS),
-            )
-            scholar_completed.add(factor["key"])
-        except SearchUnavailable:
-            logger.warning("Scholar search unavailable: factor=%s", factor["key"])
-            continue
-        for result in results:
-            candidates.append({**result, "id": f"scholar_{len(candidates)}", "factor_key": factor["key"]})
+    candidates, scholar_completed = _search_factors(plan, "SCHOLAR", check_progress)
     scholar_review = _review_sources(plan, candidates, check_progress)
     selected = scholar_review or {}
     web_factors = [
         factor for factor in plan
         if scholar_review is not None and factor["key"] in scholar_completed and factor["key"] not in selected
     ]
-    web_candidates = []
-    for factor in web_factors:
-        timeout = check_progress("SEARCHING_WEB")
-        try:
-            results = search_sources(
-                factor["web_query"], "WEB",
-                timeout=min(timeout, settings.LINER_SEARCH_TIMEOUT_SECONDS),
-            )
-        except SearchUnavailable:
-            logger.warning("Web search unavailable: factor=%s", factor["key"])
-            continue
-        for result in results:
-            web_candidates.append({**result, "id": f"web_{len(web_candidates)}", "factor_key": factor["key"]})
+    web_candidates, _ = _search_factors(web_factors, "WEB", check_progress)
     selected.update(_review_sources(web_factors, web_candidates, check_progress) or {})
     timeout = check_progress("GENERATING_JUDGMENT")
     result = _validate_result(JudgmentResultSerializer, _call_liner(
