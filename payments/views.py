@@ -44,7 +44,7 @@ class OrderCreateView(APIView):
         order = PaymentOrder.objects.create(
             user=request.user,
             product=product,
-            coin_amount=product.coin_amount,
+            coin_amount=product.coin_amount + product.bonus_coin_amount,
             price_krw=product.price_krw,
         )
         return Response(

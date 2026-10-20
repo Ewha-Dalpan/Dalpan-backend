@@ -16,7 +16,7 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 
 @admin.register(CoinProduct)
 class CoinProductAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "coin_amount", "price_krw", "paddle_price_id", "is_active", "sort_order")
+    list_display = ("id", "name", "coin_amount", "bonus_coin_amount", "price_krw", "paddle_price_id", "is_active", "sort_order")
     list_filter = ("is_active",)
     ordering = ("sort_order", "id")
 

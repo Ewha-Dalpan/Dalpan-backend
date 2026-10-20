@@ -6,7 +6,7 @@ from .models import CoinProduct
 class CoinProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = CoinProduct
-        fields = ["id", "name", "coin_amount", "price_krw"]
+        fields = ["id", "name", "coin_amount", "bonus_coin_amount", "price_krw"]
 
 
 class OrderCreateSerializer(serializers.Serializer):
