@@ -198,6 +198,36 @@ class WebhookTests(TestCase):
         self.assertEqual((event.result, event.order_id), (WebhookResult.DATA_ERROR, self.order.pk))
 
 
+    def test_bonus_payment_snapshot_duplicate_and_refund(self):
+        self.big.bonus_coin_amount = 5
+        self.big.save()
+        api = APIClient()
+        api.force_authenticate(self.user)
+        response = api.post(reverse("payment-orders"), {"product_id": self.big.pk}, format="json")
+        self.assertEqual(response.status_code, 201)
+        order = PaymentOrder.objects.get(pk=response.json()["order_id"])
+        self.assertEqual(order.coin_amount, 55)
+        self.big.bonus_coin_amount = 0
+        self.big.save()
+        payload = self.completed(price="pri_test_50", order=order)
+        self.assertEqual(self.send(payload).status_code, 200)
+        self.send(self.completed(event_id="evt_repeat", price="pri_test_50", order=order))
+        self.assertEqual(self.balance(), 55)
+        self.assertEqual(self.ledger_count(CoinTxType.CHARGE), 1)
+        self.send(self.adjustment("evt_refund", total="40000"))
+        self.assertEqual(self.balance(), 0)
+        self.assertEqual(PaymentRefund.objects.get().coins_revoked, 55)
+
+    def test_bonus_visible_in_product_list(self):
+        self.big.bonus_coin_amount = 5
+        self.big.save()
+        products = APIClient().get(reverse("payment-products")).json()
+        by_id = {p["id"]: p for p in products}
+        self.assertEqual(by_id[self.big.pk]["coin_amount"], 50)
+        self.assertEqual(by_id[self.big.pk]["bonus_coin_amount"], 5)
+        self.assertEqual(by_id[self.product.pk]["bonus_coin_amount"], 0)
+
+
 class ApiTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="pay_api", nickname="결제API")
@@ -277,3 +307,15 @@ class IsFullRefundTests(SimpleTestCase):
     def test_금액이_없거나_이상하면_부분(self):
         self.assertFalse(_is_full_refund({"type": "partial"}, self.order))
         self.assertFalse(_is_full_refund({"type": "partial", "totals": {"total": "abc"}}, self.order))
+
+class ConfigureCoinProductsTests(TestCase):
+    def test_catalog_and_repeat_execution(self):
+        old = CoinProduct.objects.create(name="1\uD1A8", coin_amount=1, price_krw=1000, paddle_price_id="pri_old")
+        options = {f"price_{n}": f"pri_test_{n}" for n in (5, 10, 20, 50)}
+        call_command("configure_coin_products", **options)
+        first_ids = list(CoinProduct.objects.filter(is_active=True).values_list("id", flat=True))
+        call_command("configure_coin_products", **options)
+        self.assertEqual(first_ids, list(CoinProduct.objects.filter(is_active=True).values_list("id", flat=True)))
+        old.refresh_from_db()
+        self.assertFalse(old.is_active)
+        self.assertEqual(list(CoinProduct.objects.filter(is_active=True).values_list("coin_amount", "price_krw", "bonus_coin_amount")), [(5, 4000, 0), (10, 8000, 0), (20, 16000, 0), (50, 40000, 5)])

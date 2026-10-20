@@ -7,6 +7,7 @@ from django.db import models
 class CoinProduct(models.Model):
     name = models.CharField(max_length=50)
     coin_amount = models.PositiveIntegerField()
+    bonus_coin_amount = models.PositiveIntegerField(default=0)
     price_krw = models.PositiveIntegerField()
     paddle_price_id = models.CharField(max_length=64, unique=True)  
     is_active = models.BooleanField(default=True)
