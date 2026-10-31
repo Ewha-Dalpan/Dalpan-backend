@@ -142,7 +142,7 @@ def _handle_transaction_completed(data, event_time):
     if not transaction_id or order_id is None:
         return WebhookResult.DATA_ERROR, "거래 ID 또는 custom_data.order_id가 없거나 형식이 올바르지 않음", None
 
-    order = PaymentOrder.objects.select_for_update().filter(pk=order_id).first()
+    order = PaymentOrder.objects.select_for_update().filter(pk=order_id, provider="paddle").first()
     if order is None:
         return WebhookResult.DATA_ERROR, f"주문 없음: {order_id}", None
 

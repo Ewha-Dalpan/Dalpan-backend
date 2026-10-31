@@ -8,7 +8,9 @@ class CoinProduct(models.Model):
     name = models.CharField(max_length=50)
     coin_amount = models.PositiveIntegerField()
     price_krw = models.PositiveIntegerField()
-    paddle_price_id = models.CharField(max_length=64, unique=True)  
+    paddle_price_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    code = models.SlugField(max_length=32, unique=True, null=True, blank=True)
+    bonus_coin_amount = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -27,6 +29,7 @@ class OrderStatus(models.TextChoices):
     PAID = "PAID", "결제 완료"
     EXPIRED = "EXPIRED", "만료"
     REFUNDED = "REFUNDED", "환불"
+    CANCELLED = "CANCELLED", "결제 요청 취소"
 
 
 class PaymentOrder(models.Model):
@@ -37,6 +40,12 @@ class PaymentOrder(models.Model):
     price_krw = models.PositiveIntegerField()    # 주문 시점 값 스냅샷
     status = models.CharField(max_length=10, choices=OrderStatus.choices, default=OrderStatus.PENDING)
     paddle_transaction_id = models.CharField(max_length=64, null=True, blank=True, unique=True)
+    provider = models.CharField(max_length=10, choices=[("paddle", "Paddle"), ("payapp", "PayApp")], default="paddle")
+    payapp_mul_no = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    payapp_pay_url = models.URLField(max_length=1000, blank=True)
+    payapp_token = models.UUIDField(default=uuid.uuid4, editable=False)
+    checkout_key = models.UUIDField(unique=True, null=True, blank=True)
+    payapp_request_status = models.CharField(max_length=12, blank=True)
     paid_at = models.DateTimeField(null=True, blank=True)
     refunded_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -89,3 +98,25 @@ class PaddleWebhookEvent(models.Model):
 
     class Meta:
         db_table = "paddle_webhook_events"
+
+class PayAppFeedback(models.Model):
+    order = models.ForeignKey(PaymentOrder, null=True, blank=True, on_delete=models.SET_NULL, related_name="payapp_feedbacks")
+    mul_no = models.CharField(max_length=64, blank=True)
+    pay_state = models.CharField(max_length=10, blank=True)
+    result = models.CharField(max_length=20, choices=WebhookResult.choices, default=WebhookResult.PROCESSED)
+    note = models.CharField(max_length=255, blank=True)
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "payapp_feedbacks"
+
+
+class PayAppRefund(models.Model):
+    order = models.OneToOneField(PaymentOrder, on_delete=models.PROTECT, related_name="payapp_refund")
+    refund_amount = models.PositiveIntegerField()
+    coins_revoked = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "payapp_refunds"
