@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CoinProduct, PaddleWebhookEvent, PaymentOrder, PaymentRefund
+from .models import CoinProduct, PaddleWebhookEvent, PayAppFeedback, PayAppRefund, PaymentOrder, PaymentRefund
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -16,7 +16,7 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 
 @admin.register(CoinProduct)
 class CoinProductAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "coin_amount", "price_krw", "paddle_price_id", "is_active", "sort_order")
+    list_display = ("id", "code", "name", "coin_amount", "bonus_coin_amount", "price_krw", "is_active", "sort_order")
     list_filter = ("is_active",)
     ordering = ("sort_order", "id")
 
@@ -26,9 +26,9 @@ class CoinProductAdmin(admin.ModelAdmin):
 
 @admin.register(PaymentOrder)
 class PaymentOrderAdmin(ReadOnlyAdmin):
-    list_display = ("id", "user", "product", "coin_amount", "price_krw", "status", "paid_at", "created_at")
-    list_filter = ("status",)
-    search_fields = ("user__nickname", "paddle_transaction_id")
+    list_display = ("id", "user", "product", "provider", "coin_amount", "price_krw", "status", "payapp_request_status", "paid_at", "created_at")
+    list_filter = ("provider", "status")
+    search_fields = ("user__nickname", "paddle_transaction_id", "payapp_mul_no")
     ordering = ("-created_at",)
 
 
@@ -44,4 +44,17 @@ class PaddleWebhookEventAdmin(ReadOnlyAdmin):
     list_display = ("created_at", "event_type", "result", "note", "order")
     list_filter = ("result", "event_type")
     search_fields = ("event_id", "note")
+    ordering = ("-id",)
+
+@admin.register(PayAppFeedback)
+class PayAppFeedbackAdmin(ReadOnlyAdmin):
+    list_display = ("created_at", "order", "mul_no", "pay_state", "result", "note")
+    list_filter = ("result", "pay_state")
+    search_fields = ("mul_no", "note")
+    ordering = ("-id",)
+
+
+@admin.register(PayAppRefund)
+class PayAppRefundAdmin(ReadOnlyAdmin):
+    list_display = ("id", "order", "refund_amount", "coins_revoked", "created_at")
     ordering = ("-id",)

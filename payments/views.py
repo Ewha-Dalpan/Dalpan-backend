@@ -1,4 +1,3 @@
-from django.shortcuts import render
 import json
 import logging
 
@@ -12,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import CoinProduct, PaymentOrder
-from .serializers import CoinProductSerializer, OrderCreateSerializer
+from .serializers import CoinProductSerializer
 from .services import (
     InvalidSignature,
     TransientError,
@@ -25,37 +24,12 @@ logger = logging.getLogger(__name__)
 
 
 class ProductListView(generics.ListAPIView):
-    """코인 상품 목록. 로그인 없이 볼 수 있어야 한다 (Paddle 심사: 가격 공개)."""
+    """공개 코인 상품 목록. 가격과 보너스 포함 지급량은 서버에서 결정한다."""
     authentication_classes = []
     permission_classes = [AllowAny]
     serializer_class = CoinProductSerializer
     pagination_class = None
     queryset = CoinProduct.objects.filter(is_active=True).order_by("sort_order", "id")
-
-
-class OrderCreateView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        serializer = OrderCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        product = serializer.validated_data["product"]
-
-        order = PaymentOrder.objects.create(
-            user=request.user,
-            product=product,
-            coin_amount=product.coin_amount,
-            price_krw=product.price_krw,
-        )
-        return Response(
-            {
-                "order_id": str(order.pk),            # 프론트: Paddle 결제창 customData.order_id 로 넘길 것
-                "paddle_price_id": product.paddle_price_id,
-                "coin_amount": order.coin_amount,
-                "price_krw": order.price_krw,
-            },
-            status=status.HTTP_201_CREATED,
-        )
 
 
 class OrderDetailView(APIView):
@@ -70,6 +44,8 @@ class OrderDetailView(APIView):
                 "status": order.status,
                 "coin_amount": order.coin_amount,
                 "paid_at": order.paid_at,
+                "provider": order.provider,
+                "pay_url": order.payapp_pay_url if order.status == "PENDING" else "",
             }
         )
 

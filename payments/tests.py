@@ -4,6 +4,7 @@ import json
 import time
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -211,24 +212,30 @@ class ApiTests(TestCase):
     def test_products_are_public_and_hide_inactive(self):
         res = self.api.get(reverse("payment-products"))
         self.assertEqual(res.status_code, 200)
-        self.assertEqual([p["name"] for p in res.json()], ["5톨"])
+        self.assertIn("5톨", [p["name"] for p in res.json()])
+        self.assertNotIn("숨김", [p["name"] for p in res.json()])
 
     def test_order_requires_login(self):
         res = self.api.post(reverse("payment-orders"), {"product_id": self.product.pk}, format="json")
         self.assertEqual(res.status_code, 401)
 
-    def test_order_uses_server_side_price(self):
+    @override_settings(PAYAPP_USER_ID="seller", PAYAPP_LINK_KEY="key", PAYAPP_LINK_VALUE="value",
+                       PAYAPP_REQUEST_KEY="request-key",
+                       PAYAPP_FEEDBACK_URL="https://api.example.com/api/payments/payapp/feedback/",
+                       PAYAPP_RETURN_URL="https://example.com/result")
+    @patch("payments.payapp_views.create_payment", return_value=("123", "https://payapp.kr/pay/123"))
+    def test_order_uses_server_side_price(self, mocked):
         self.api.force_authenticate(self.user)
         res = self.api.post(
-            reverse("payment-orders"), {"product_id": self.product.pk, "price_krw": 1}, format="json")
+            reverse("payment-orders"), {"product_id": self.product.pk, "price_krw": 1, "recvphone": "01012345678"}, format="json")
         self.assertEqual(res.status_code, 201)
         order = PaymentOrder.objects.get(pk=res.json()["order_id"])
         self.assertEqual((order.price_krw, order.coin_amount, order.status), (4000, 5, "PENDING"))
-        self.assertEqual(res.json()["paddle_price_id"], "pri_api_5")
+        self.assertEqual(res.json()["pay_url"], "https://payapp.kr/pay/123")
 
     def test_inactive_product_rejected(self):
         self.api.force_authenticate(self.user)
-        res = self.api.post(reverse("payment-orders"), {"product_id": self.hidden.pk}, format="json")
+        res = self.api.post(reverse("payment-orders"), {"product_id": self.hidden.pk, "recvphone": "01012345678"}, format="json")
         self.assertEqual(res.status_code, 400)
 
     def test_order_detail_only_for_owner(self):

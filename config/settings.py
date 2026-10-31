@@ -173,7 +173,7 @@ CORS_ALLOWED_ORIGINS = [
     for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
     if origin.strip()
 ]
-CORS_ALLOW_HEADERS = (*default_headers, "ngrok-skip-browser-warning")
+CORS_ALLOW_HEADERS = (*default_headers, "ngrok-skip-browser-warning", "idempotency-key")
 KAKAO_ADMIN_KEY = env("KAKAO_ADMIN_KEY", default="")
 
 VERDICT_TIMEOUT_SECONDS = env.int("VERDICT_TIMEOUT_SECONDS", default=600)
@@ -276,6 +276,15 @@ if IS_PRODUCTION:
 PADDLE_WEBHOOK_SECRET = env("PADDLE_WEBHOOK_SECRET", default="")
 PADDLE_WEBHOOK_TOLERANCE_SECONDS = 300
 PAYMENT_ORDER_EXPIRE_HOURS = 24
+
+PAYAPP_USER_ID = env("PAYAPP_USER_ID", default="")
+PAYAPP_LINK_KEY = env("PAYAPP_LINK_KEY", default="")
+PAYAPP_LINK_VALUE = env("PAYAPP_LINK_VALUE", default="")
+PAYAPP_REQUEST_KEY = env("PAYAPP_REQUEST_KEY", default="")
+PAYAPP_FEEDBACK_URL = env("PAYAPP_FEEDBACK_URL", default="")
+PAYAPP_RETURN_URL = env("PAYAPP_RETURN_URL", default="")
+PAYAPP_API_URL = "https://api.payapp.kr/oapi/v2"
+PAYAPP_MIN_PRICE_KRW = 1000
 
 # Send server exceptions to stderr so Railway captures their tracebacks.
 LOGGING = {
