@@ -217,9 +217,12 @@ class PayAppTests(TestCase):
         seeded = {item["code"]: item for item in result if item["code"]}
         self.assertEqual([seeded[f"tol-{n}"]["price_krw"] for n in (1,5,10,20,50)],
                          [1000,4950,9900,19800,49500])
-        self.assertEqual(seeded["tol-50"]["coin_amount"], 55)
-        self.assertEqual(seeded["tol-50"]["base_coin_amount"], 50)
-        self.assertEqual(seeded["tol-50"]["bonus_coin_amount"], 5)
+        for code, base, bonus in [("tol-10", 10, 1), ("tol-20", 20, 3), ("tol-50", 50, 5)]:
+            with self.subTest(code=code):
+                self.assertEqual(seeded[code]["coin_amount"], base + bonus)
+                self.assertEqual(seeded[code]["base_coin_amount"], base)
+                self.assertEqual(seeded[code]["bonus_coin_amount"], bonus)
+                self.assertEqual(seeded[code]["name"], f"{base}톨 + {bonus}톨 보너스")
 
     def test_signup_still_grants_one_coin_once(self):
         user, created = register_kakao_user("payapp-signup-regression")
