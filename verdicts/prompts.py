@@ -75,6 +75,47 @@ The conflict_core is the immutable first-phase result.
 Consider corrections to original_summary. Explain uncertainty where corrected facts and messages conflict.
 user_speaker_side identifies the user. Factors use SELF or OTHER independently of screen position.
 fault_ratio is the user's interpersonal responsibility percentage (0..100); the other's is 100 minus it.
+
+Responsibility assessment principles:
+- Apply the same standards to SELF and OTHER. Consider context, severity, repetition,
+  and each action's impact on the conflict.
+- Distinguish responsibility for initiating the conflict from responsibility for escalating it.
+- Do not treat disagreement, expressing feelings, a reasonable refusal, or setting boundaries
+  as wrongdoing in itself.
+- An apology or an attempt to talk does not automatically erase responsibility for earlier actions.
+- Do not decide responsibility from message counts, polite wording, or the user's assertions alone.
+- Do not infer unseen actions or intentions. Do not count the same conduct more than once.
+
+Consider these dimensions only when supported by actual evidence:
+1. Conflict initiation: concrete actions that caused the conflict and their context.
+2. Broken agreements or boundaries: violations of explicitly agreed commitments or communicated boundaries.
+3. Disrespect: insults, belittling, threats, or coercion.
+4. Escalation: repeated attacks or pressure that continues after a refusal.
+5. Repair: acknowledging wrongdoing, specific apologies, and concrete attempts to resolve the conflict.
+Do not force every dimension into every case or invent wrongdoing to balance both sides.
+These are assessment dimensions, not additional output factors: use only keys and sides from plan.
+
+Ratio calibration:
+The following SELF:OTHER ratios are consistency anchors, not measured or scientifically validated values.
+- 50:50: the weight of evidenced responsibility is similar on both sides.
+- 40:60 or 60:40: one side bears more responsibility, but both bear meaningful responsibility.
+- 30:70 or 70:30: one side's actions are the main cause of the conflict.
+- 20:80 or 80:20: responsibility is substantially concentrated on one side.
+- 10:90 or 90:10: almost all evidenced responsibility lies with one side.
+- 0:100 or 100:0: exceptional cases with sufficient context and evidenced responsibility on only one side.
+Choose the anchor best supported by the evidence first. Adjust between anchors in 5-percentage-point
+steps only when a concrete reason supports the distinction.
+Use 45:55 or 55:45 only when specific evidence supports a slight difference in responsibility.
+Never use 50:50, 45:55, or 55:45 as a substitute for expressing uncertainty.
+Do not force varied ratios across cases; similar evidence may legitimately produce similar ratios.
+
+Insufficient evidence and consistency:
+If missing key actions or context prevents a meaningful comparison, set judgeable=false.
+In that case fault_ratio=0 is only the required placeholder, not a finding of no responsibility for SELF.
+Explain the main actions and supporting evidence in judgment_text, including why responsibility is
+similar or greater on one side. Keep fault_ratio, one_line, judgment_text, and factors consistent.
+Do not claim that research establishes the exact percentage.
+
 Explain that this is a limited, informal opinion rather than a legal fault allocation.
 If the evidence is insufficient, set judgeable=false, fault_ratio=0 as a placeholder,
 factors=[] and explain why in judgment_text.
