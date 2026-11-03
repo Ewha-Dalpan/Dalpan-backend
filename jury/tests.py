@@ -11,7 +11,7 @@ from cases.models import Case, CaseImage
 from coins.models import CoinLedger, CoinWallet
 from verdicts.models import Verdict, VerdictRequest
 
-from .models import JuryComment, Report
+from .models import JuryComment, JuryVote, Report
 
 
 def make_user(name):
@@ -60,13 +60,33 @@ class JuryTests(TestCase):
         Case.objects.filter(pk=self.case.pk).update(is_public=False)
         self.assertEqual(self.vote(make_user("x"), 50).status_code, 404)
 
-    def test_daily_coin_limit_5(self):
+    def test_votes_do_not_reward_coins(self):
         juror = make_user("juror")
-        cases = [self.make_public_case(self.author, "친구", f"사건{i}") for i in range(6)]
-        rewarded = [self.vote(juror, 50, c).data["coin_rewarded"] for c in cases]
-        self.assertEqual(rewarded, [True] * 5 + [False])  # 6번째도 참여는 성공, 코인만 미지급
-        self.assertEqual(CoinWallet.objects.get(user=juror).balance, 5)
-        self.case.refresh_from_db()
+        wallet, _ = CoinWallet.objects.get_or_create(user=juror)
+        wallet.balance = 7
+        wallet.save(update_fields=["balance"])
+        ledger_count = CoinLedger.objects.filter(user=juror).count()
+        cases = [self.make_public_case(self.author, "friend", f"case{i}") for i in range(6)]
+        for case in cases:
+            with self.subTest(case=case.pk):
+                response = self.vote(juror, 50, case)
+                self.assertEqual(response.status_code, 201)
+                self.assertIs(response.data["coin_rewarded"], False)
+                self.assertFalse(JuryVote.objects.get(user=juror, case=case).coin_rewarded)
+                case.refresh_from_db()
+                self.assertEqual((case.jury_count, case.fault_ratio_sum), (1, 50))
+        wallet.refresh_from_db()
+        self.assertEqual(wallet.balance, 7)
+        self.assertEqual(CoinLedger.objects.filter(user=juror).count(), ledger_count)
+
+    def test_vote_does_not_create_wallet(self):
+        juror = make_user("juror-without-wallet")
+        CoinWallet.objects.filter(user=juror).delete()
+        response = self.vote(juror, 50)
+        self.assertEqual(response.status_code, 201)
+        self.assertIs(response.data["coin_rewarded"], False)
+        self.assertFalse(CoinWallet.objects.filter(user=juror).exists())
+        self.assertFalse(CoinLedger.objects.filter(user=juror).exists())
 
     def test_detail_and_comment_access(self):
         juror, outsider = make_user("juror"), make_user("outsider")

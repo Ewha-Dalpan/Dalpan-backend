@@ -1,5 +1,3 @@
-from datetime import datetime, time
-
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import F
@@ -9,13 +7,8 @@ from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied
 
 from cases.models import Case, CaseImage
-from coins.models import CoinTxType, CoinWallet
-from coins.services import change_coins
 
 from .models import CommentStatus, JuryComment, JuryVote, Report, ReportTarget
-
-JURY_REWARD = 1
-JURY_DAILY_REWARD_LIMIT = 5  # 하루 코인 지급 한도(한국 시간 자정 기준). 넘어도 참여는 가능
 
 class AlreadyVoted(APIException):
     status_code = status.HTTP_409_CONFLICT
@@ -61,11 +54,6 @@ def can_view_result(user, case, vote=None):
     return (vote or my_vote(user, case)) is not None
 
 
-def _today_start():
-    today = timezone.localdate()  # settings.TIME_ZONE = Asia/Seoul 기준 날짜
-    return datetime.combine(today, time.min, tzinfo=timezone.get_current_timezone())
-
-
 @transaction.atomic
 def submit_vote(*, user, case_id, fault_ratio):
     # 사건 행을 잠가서 같은 사건에 동시 제출해도 집계값이 꼬이지 않게 함
@@ -73,18 +61,10 @@ def submit_vote(*, user, case_id, fault_ratio):
     if case.user_id == user.pk:
         raise PermissionDenied("본인 사건에는 판결을 제출할 수 없습니다.")
 
-    # 지갑 행을 잠근 뒤 오늘 지급 횟수를 세야 동시 요청으로 한도를 넘지 않음
-    CoinWallet.objects.get_or_create(user=user)
-    CoinWallet.objects.select_for_update().get(user=user)
-    rewarded_today = JuryVote.objects.filter(
-        user=user, coin_rewarded=True, created_at__gte=_today_start(),
-    ).count()
-    reward = rewarded_today < JURY_DAILY_REWARD_LIMIT
-
     try:
         with transaction.atomic():
             vote = JuryVote.objects.create(
-                case=case, user=user, fault_ratio=fault_ratio, coin_rewarded=reward,
+                case=case, user=user, fault_ratio=fault_ratio, coin_rewarded=False,
             )
     except IntegrityError:
         raise AlreadyVoted()
@@ -93,11 +73,6 @@ def submit_vote(*, user, case_id, fault_ratio):
         jury_count=F("jury_count") + 1,
         fault_ratio_sum=F("fault_ratio_sum") + fault_ratio,
     )
-    if reward:
-        change_coins(
-            user=user, tx_type=CoinTxType.JURY_REWARD, amount=JURY_REWARD,
-            idempotency_key=f"jury-reward:{vote.pk}", case=case,
-        )
     case.refresh_from_db(fields=["jury_count", "fault_ratio_sum"])
     return case, vote
 

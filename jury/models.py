@@ -9,7 +9,7 @@ class JuryVote(models.Model):
     case = models.ForeignKey("cases.Case", on_delete=models.PROTECT, related_name="jury_votes")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="jury_votes")
     fault_ratio = models.PositiveSmallIntegerField(validators=[MaxValueValidator(100)])  # 작성자 과실 비율(%), 수정 불가
-    coin_rewarded = models.BooleanField(default=False)  # 하루 한도 초과 시 False
+    coin_rewarded = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)  # 화면 미노출, 한도/주목 사건 계산용
 
     class Meta:
